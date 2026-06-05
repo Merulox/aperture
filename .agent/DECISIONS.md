@@ -1,4 +1,4 @@
-# Decision Log
+# Decision Log — Aperture
 
 _One entry per architectural or product decision. Append-only — never edit past decisions.
 Mark superseded decisions with `[SUPERSEDED by D-NNN]` at the top._
