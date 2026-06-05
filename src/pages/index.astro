@@ -1,6 +1,40 @@
 ---
-// Aperture — Genesis ambient interface web layer
-// Placeholder: replace with actual dashboard content
+import '../styles/global.css';
+import { getDashboardData } from '../lib/data';
+
+const { health, genesis, vitals, mode } = await getDashboardData();
+
+const statusTone = toneForStatus(health.status);
+const vitalsAgeDays = ageInDays(vitals.ts);
+const vitalsStale = vitalsAgeDays > 7;
+
+function toneForStatus(status: string): string {
+  if (['ACTIVE', 'OK'].includes(status)) return 'green';
+  if (['FROZEN_PIVOT', 'FROZEN'].includes(status)) return 'yellow';
+  if (['CRITICAL', 'ERROR'].includes(status)) return 'red';
+  return 'muted';
+}
+
+function urgencyTone(urgency: string): string {
+  if (urgency === 'HIGH') return 'red';
+  if (urgency === 'MEDIUM' || urgency === 'MED') return 'yellow';
+  if (urgency === 'LOW') return 'muted';
+  return 'muted';
+}
+
+function formatMoney(value: number): string {
+  return `$${value.toFixed(2)}`;
+}
+
+function formatScore(score: number): string {
+  return score.toFixed(2);
+}
+
+function ageInDays(timestamp: string): number {
+  const time = new Date(timestamp).getTime();
+  if (Number.isNaN(time)) return 0;
+  return (Date.now() - time) / 86_400_000;
+}
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -8,47 +42,101 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Aperture</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: #0a0a0a;
-      color: #e0e0e0;
-      font-family: 'Berkeley Mono', 'Fira Code', monospace;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .center {
-      text-align: center;
-    }
-    h1 {
-      font-size: 1rem;
-      font-weight: 400;
-      letter-spacing: 0.2em;
-      color: #666;
-      text-transform: uppercase;
-    }
-    .pulse {
-      margin: 2rem auto;
-      width: 8px;
-      height: 8px;
-      background: #4ade80;
-      border-radius: 50%;
-      animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(0.8); }
-    }
-    p { color: #444; font-size: 0.75rem; letter-spacing: 0.1em; }
-  </style>
 </head>
 <body>
-  <div class="center">
-    <h1>aperture</h1>
-    <div class="pulse"></div>
-    <p>listening</p>
-  </div>
+  <main>
+    <header class="topbar">
+      <div class="brand">aperture</div>
+      <div class="meta">
+        <span class={`badge badge-${statusTone}`}>{health.status}</span>
+        <span>tick {health.tick}</span>
+        <span>{health.updated}</span>
+      </div>
+    </header>
+
+    <div class="grid">
+      <section class="panel" aria-labelledby="mode-heading">
+        <div class="label" id="mode-heading">mode</div>
+        <h1 class="mode-name">{mode.current}</h1>
+        <p class="goal">{mode.goal}</p>
+      </section>
+
+      <section class="panel" aria-labelledby="health-heading">
+        <div class="label" id="health-heading">health</div>
+        <div class="health-line">
+          <span class={`badge badge-${statusTone}`}>{health.status}</span>
+          <span>{health.phase}</span>
+        </div>
+        <div class="health-line">
+          <span>{health.runway_days}d runway</span>
+          <span class="muted">·</span>
+          <span>{formatMoney(health.cost_usd)} / {formatMoney(health.cost_limit_usd)}</span>
+        </div>
+        <div class="health-line">
+          <span>{health.pipeline.sent} sent</span>
+          <span class="muted">·</span>
+          <span>{health.pipeline.replied} replied</span>
+        </div>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="genesis-heading">
+        <div class="label" id="genesis-heading">genesis state</div>
+        <p class="state-line">
+          tick {genesis.tick} · updated {genesis.updated} · active rule: {genesis.activeRule}
+        </p>
+        <p class="state-entry">{genesis.latestEntry}</p>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="decisions-heading">
+        <div class="section-head">
+          <div class="label" id="decisions-heading">pending decisions</div>
+          <span class="badge">{health.pending_decisions.length} pending</span>
+        </div>
+        {
+          health.pending_decisions.length > 0 ? (
+            <ul class="decisions">
+              {health.pending_decisions.map((decision) => (
+                <li class="decision">
+                  <span class="decision-marker">○</span>
+                  <span class={`badge badge-${urgencyTone(decision.urgency)}`}>{decision.urgency}</span>
+                  <span class="decision-text">
+                    {decision.item} <span class="decision-date">— last raised: {decision.last_raised}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p class="state-entry">— none —</p>
+          )
+        }
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="vitals-heading">
+        <div class="section-head">
+          <div class="label" id="vitals-heading">vital signs</div>
+          <span class={`badge ${vitalsStale ? 'badge-yellow' : 'badge-muted'}`}>{vitals.ts}</span>
+        </div>
+        <div class="vitals-line">
+          <span>agents {vitals.realm.agents_active}</span>
+          <span class="muted">·</span>
+          <span>claims {vitals.knowledge.vault_claims}</span>
+          <span class="muted">·</span>
+          <span>conflicts {vitals.knowledge.open_conflicts}</span>
+          <span class="muted">·</span>
+          <span>failpoints {vitals.logic.critical_failpoints}</span>
+        </div>
+        <div class="ambitions">
+          {vitals.ambitions.map((ambition) => (
+            <div class="ambition">
+              <span>{ambition.id}</span>
+              <span>{ambition.label}</span>
+              <span class="muted">·</span>
+              <span class="score">score {formatScore(ambition.score)}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  </main>
 </body>
 </html>
