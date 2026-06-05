@@ -1,0 +1,54 @@
+---
+// Aperture — Genesis ambient interface web layer
+// Placeholder: replace with actual dashboard content
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aperture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0a0a;
+      color: #e0e0e0;
+      font-family: 'Berkeley Mono', 'Fira Code', monospace;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .center {
+      text-align: center;
+    }
+    h1 {
+      font-size: 1rem;
+      font-weight: 400;
+      letter-spacing: 0.2em;
+      color: #666;
+      text-transform: uppercase;
+    }
+    .pulse {
+      margin: 2rem auto;
+      width: 8px;
+      height: 8px;
+      background: #4ade80;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.8); }
+    }
+    p { color: #444; font-size: 0.75rem; letter-spacing: 0.1em; }
+  </style>
+</head>
+<body>
+  <div class="center">
+    <h1>aperture</h1>
+    <div class="pulse"></div>
+    <p>listening</p>
+  </div>
+</body>
+</html>
