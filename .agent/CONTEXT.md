@@ -1,32 +1,41 @@
 # Aperture — Project Context
 
 Last updated: 2026-06-05
-Updated by: architect (initial scaffold)
+Updated by: architect (AP-01 reviewed + accepted)
 
 ---
 
 ## Current state summary
 
-Project scaffolded. Astro + git initialized. Placeholder index page exists. No content built yet. Design direction set (dark, monospace, minimal, ambient). Sections and data sources need product owner decision before any executor work starts.
+AP-01 dashboard is DONE — SSR Astro app, Basic Auth (m/st), 5 sections rendering live from state files (health, genesis live-state, vitals, mode + pending decisions). Verified live by architect: 401 without auth, 200 with m:st, all sections populated with real data. Committed at 15afd3f. Not yet deployed (needs cloudflared tunnel — out of scope for AP-01).
 
 ---
 
 ## What was just completed
 
-- git init (branch: main)
-- package.json, astro.config.mjs
-- src/pages/index.astro (dark placeholder, pulsing dot, "listening")
-- .agent/ bootstrapped
+- AP-01: full dashboard (src/middleware.ts, src/lib/data.ts, src/styles/global.css, src/pages/index.astro)
+- Reviewed against live state — PASS. Build clean, auth gate works, all 5 sections live.
+- .astro/ added to gitignore during review
 
 ## What is in flight
 
-- Nothing — waiting on PO decisions (see open questions in PROJECT.md)
+- Nothing
 
-## What is next
+## What is next (candidates — need PO direction)
 
-1. Product owner decides: which sections in v1, static vs dynamic, auth?
-2. Architect writes Task AP-01 brief: implement v1 sections
-3. Codex implements
+1. **Deploy**: expose port 8788 via cloudflared tunnel to aperture.merulox.com, run `npm start` as a systemd --user service
+2. **Auto-refresh**: dashboard is currently load-time only; add periodic refresh (meta refresh or fetch poll)
+3. **More data**: realm vitals has more fields (vision/society, timespace, infra) not yet surfaced
+
+---
+
+## How to run
+
+```bash
+cd ~/projects/aperture
+npm run build
+npm start    # serves on port 8788, auth m:st
+```
 
 ---
 
