@@ -3,6 +3,8 @@ import '../styles/global.css';
 import { getTaskboardData } from '../lib/tasks';
 
 const { permissionRequests, exTasks, syntraTasks, brainBus } = await getTaskboardData();
+const activeExTasks = exTasks.filter((task) => task.status !== 'done');
+const doneExTasks = exTasks.filter((task) => task.status === 'done');
 const groupedSyntra = Object.groupBy(syntraTasks, (task) => task.status);
 const attentionStatuses = ['backlog', 'briefed'];
 const otherStatuses = Object.keys(groupedSyntra)
@@ -20,7 +22,10 @@ const otherStatuses = Object.keys(groupedSyntra)
   <main>
     <header class="topbar">
       <div class="brand">aperture / tasks</div>
-      <a href="/" class="nav-link">dashboard</a>
+      <div class="taskboard-meta">
+        <span>Last updated: {new Date().toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+        <a href="/" class="nav-link">dashboard</a>
+      </div>
     </header>
 
     <div class="taskboard">
@@ -56,16 +61,46 @@ const otherStatuses = Object.keys(groupedSyntra)
         </div>
         <div class="ex-grid">
           {
-            exTasks.length ? exTasks.map((task) => (
-              <div class="ex-task">
-                <span class="ex-status">{task.status || '—'}</span>
+            activeExTasks.length ? activeExTasks.map((task) => (
+              <div class={`ex-task ${task.uninitiated ? 'task-uninitiated' : ''}`}>
                 <span class="task-id">{task.id}</span>
+                <span class={`badge badge-${task.statusTone}`}>{task.statusBadge}</span>
                 <span class="task-title">{task.title}</span>
                 <span class="task-note">{task.riskGate || '—'}</span>
-                {task.briefPath && <span class="task-path">{task.briefPath}</span>}
+                {task.prompt && (
+                  <div class="prompt-block">
+                    <pre>{task.prompt}</pre>
+                    <button type="button" class="copy-prompt" data-prompt={task.prompt}>Copy prompt</button>
+                  </div>
+                )}
+                {task.briefPath && (
+                  <details class="brief-preview">
+                    <summary>▶ View brief</summary>
+                    <pre>{task.briefExists ? task.briefPreview : `Brief not found at ${task.briefPath}`}</pre>
+                  </details>
+                )}
               </div>
-            )) : <p class="state-entry">— no ex tasks found —</p>
+            )) : <p class="state-entry">— no active ex tasks —</p>
           }
+          <details class="done-group ex-done-group">
+            <summary>[{doneExTasks.length} done — click to expand]</summary>
+            <div class="ex-grid">
+              {doneExTasks.map((task) => (
+                <div class="ex-task">
+                  <span class="task-id">{task.id}</span>
+                  <span class={`badge badge-${task.statusTone}`}>{task.statusBadge}</span>
+                  <span class="task-title">{task.title}</span>
+                  <span class="task-note">{task.riskGate || '—'}</span>
+                  {task.briefPath && (
+                    <details class="brief-preview">
+                      <summary>▶ View brief</summary>
+                      <pre>{task.briefExists ? task.briefPreview : `Brief not found at ${task.briefPath}`}</pre>
+                    </details>
+                  )}
+                </div>
+              ))}
+            </div>
+          </details>
         </div>
       </section>
 
@@ -82,11 +117,23 @@ const otherStatuses = Object.keys(groupedSyntra)
                 groupedSyntra[status]?.length ? (
                   <div class="task-list">
                     {groupedSyntra[status]?.map((task) => (
-                      <div class="task-row">
+                      <div class={`task-row ${task.uninitiated ? 'task-uninitiated' : ''}`}>
                         <span class="task-id">{task.id}</span>
-                        <span class="badge badge-muted">{task.priority}</span>
+                        <span class={`badge badge-${task.statusTone}`}>{task.statusBadge}</span>
                         <span class="task-title">{task.title}</span>
                         <span class="task-note">{task.notes}</span>
+                        {task.prompt && (
+                          <div class="prompt-block">
+                            <pre>{task.prompt}</pre>
+                            <button type="button" class="copy-prompt" data-prompt={task.prompt}>Copy prompt</button>
+                          </div>
+                        )}
+                        {task.briefPath && (
+                          <details class="brief-preview">
+                            <summary>▶ View brief</summary>
+                            <pre>{task.briefExists ? task.briefPreview : `Brief not found at ${task.briefPath}`}</pre>
+                          </details>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -101,25 +148,37 @@ const otherStatuses = Object.keys(groupedSyntra)
                 {groupedSyntra[status]?.map((task) => (
                   <div class="task-row">
                     <span class="task-id">{task.id}</span>
-                    <span class="badge badge-muted">{task.priority}</span>
+                    <span class={`badge badge-${task.statusTone}`}>{task.statusBadge}</span>
                     <span class="task-title">{task.title}</span>
                     <span class="task-note">{task.notes}</span>
+                    {task.briefPath && (
+                      <details class="brief-preview">
+                        <summary>▶ View brief</summary>
+                        <pre>{task.briefExists ? task.briefPreview : `Brief not found at ${task.briefPath}`}</pre>
+                      </details>
+                    )}
                   </div>
                 ))}
               </div>
             </section>
           ))}
           <details class="syntra-group done-group">
-            <summary>done <span class="badge badge-green">{groupedSyntra.done?.length || 0}</span></summary>
+            <summary>[{groupedSyntra.done?.length || 0} done — click to expand]</summary>
             {
               groupedSyntra.done?.length ? (
                 <div class="task-list">
                   {groupedSyntra.done.map((task) => (
-                    <div class="task-row">
-                      <span class="task-id">{task.id}</span>
-                      <span class="badge badge-muted">{task.priority}</span>
-                      <span class="task-title">{task.title}</span>
-                      <span class="task-note">{task.notes}</span>
+                      <div class="task-row">
+                        <span class="task-id">{task.id}</span>
+                        <span class={`badge badge-${task.statusTone}`}>{task.statusBadge}</span>
+                        <span class="task-title">{task.title}</span>
+                        <span class="task-note">{task.notes}</span>
+                        {task.briefPath && (
+                          <details class="brief-preview">
+                            <summary>▶ View brief</summary>
+                            <pre>{task.briefExists ? task.briefPreview : `Brief not found at ${task.briefPath}`}</pre>
+                          </details>
+                        )}
                     </div>
                   ))}
                 </div>
@@ -156,6 +215,18 @@ const otherStatuses = Object.keys(groupedSyntra)
     </div>
   </main>
   <script>
+    window.setInterval(() => window.location.reload(), 30_000);
+
+    document.querySelectorAll<HTMLButtonElement>('.copy-prompt').forEach((button) => {
+      button.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(button.dataset.prompt || '');
+        button.textContent = 'Copied ✓';
+        window.setTimeout(() => {
+          button.textContent = 'Copy prompt';
+        }, 2_000);
+      });
+    });
+
     document.querySelectorAll<HTMLFormElement>('.request-form').forEach((form) => {
       form.addEventListener('submit', async (event) => {
         event.preventDefault();
