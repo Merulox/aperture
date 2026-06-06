@@ -1,7 +1,7 @@
 import type { MiddlewareHandler } from 'astro';
 
-const USER = 'm';
-const PASS = 'st';
+const USER = import.meta.env.BASIC_AUTH_USER ?? 'm';
+const PASS = import.meta.env.BASIC_AUTH_PASS ?? 'st';
 const EXPECTED = 'Basic ' + btoa(`${USER}:${PASS}`);
 
 export const onRequest: MiddlewareHandler = async (ctx, next) => {

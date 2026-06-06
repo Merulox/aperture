@@ -2,8 +2,13 @@ import { readFile } from 'node:fs/promises';
 
 const HEALTH_PATH = '/home/merulox/obsidian/knowledge/projects/genesis/health.json';
 const LIVE_STATE_PATH = '/home/merulox/obsidian/knowledge/projects/genesis/live-state.md';
-const VITALS_PATH = '/home/merulox/projects/realm/commons/vitals.json';
+// vitals.json was archived 2026-06-05 (stale since April). Kept as historical fallback;
+// the live signal is the monitor feed below.
+const VITALS_PATH = '/home/merulox/projects/realm/_archive/commons-stale/vitals.json';
 const MODE_PATH = '/home/merulox/projects/realm/mode.json';
+// LIVE telemetry — the crown jewel (written continuously by realm monitor hooks)
+const MONITOR_HEALTH_PATH = '/home/merulox/projects/realm/monitor/service-health.jsonl';
+const MONITOR_AUDIT_PATH = '/home/merulox/projects/realm/monitor/genesis-audit.jsonl';
 
 export type HealthStatus =
   | 'ACTIVE'
