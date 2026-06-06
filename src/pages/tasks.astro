@@ -1,0 +1,180 @@
+---
+import '../styles/global.css';
+import { getTaskboardData } from '../lib/tasks';
+
+const { permissionRequests, exTasks, syntraTasks, brainBus } = await getTaskboardData();
+const groupedSyntra = Object.groupBy(syntraTasks, (task) => task.status);
+const attentionStatuses = ['backlog', 'briefed'];
+const otherStatuses = Object.keys(groupedSyntra)
+  .filter((status) => !attentionStatuses.includes(status) && status !== 'done')
+  .sort();
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tasks · Aperture</title>
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <div class="brand">aperture / tasks</div>
+      <a href="/" class="nav-link">dashboard</a>
+    </header>
+
+    <div class="taskboard">
+      <section class="panel" aria-labelledby="requests-heading">
+        <div class="section-head">
+          <div class="label" id="requests-heading">permission requests</div>
+          <span class={`badge ${permissionRequests.length ? 'badge-red' : 'badge-muted'}`}>
+            {permissionRequests.length} pending
+          </span>
+        </div>
+        <div class="request-list">
+          {
+            permissionRequests.length ? permissionRequests.map((request) => (
+              <div class={`request-card urgency-${request.urgency}`}>
+                <div class="request-meta">{request.requestor} · {request.task} · {request.created}</div>
+                <div class="request-question">{request.question}</div>
+                {request.context && <div class="request-context">{request.context}</div>}
+                <form method="POST" action="/api/respond" class="request-form">
+                  <input type="hidden" name="id" value={request.id} />
+                  <textarea name="answer" placeholder="Your answer..." required></textarea>
+                  <button type="submit">Respond</button>
+                </form>
+              </div>
+            )) : <p class="state-entry">— no pending permission requests —</p>
+          }
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="ex-heading">
+        <div class="section-head">
+          <div class="label" id="ex-heading">ex tasks</div>
+          <span class="badge badge-muted">{exTasks.length} tasks</span>
+        </div>
+        <div class="ex-grid">
+          {
+            exTasks.length ? exTasks.map((task) => (
+              <div class="ex-task">
+                <span class="ex-status">{task.status || '—'}</span>
+                <span class="task-id">{task.id}</span>
+                <span class="task-title">{task.title}</span>
+                <span class="task-note">{task.riskGate || '—'}</span>
+                {task.briefPath && <span class="task-path">{task.briefPath}</span>}
+              </div>
+            )) : <p class="state-entry">— no ex tasks found —</p>
+          }
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="syntra-heading">
+        <div class="section-head">
+          <div class="label" id="syntra-heading">syntra</div>
+          <span class="badge badge-muted">{syntraTasks.length} tasks</span>
+        </div>
+        <div class="syntra-groups">
+          {attentionStatuses.map((status) => (
+            <section class="syntra-group attention-group">
+              <h2>{status} <span class="badge badge-yellow">{groupedSyntra[status]?.length || 0}</span></h2>
+              {
+                groupedSyntra[status]?.length ? (
+                  <div class="task-list">
+                    {groupedSyntra[status]?.map((task) => (
+                      <div class="task-row">
+                        <span class="task-id">{task.id}</span>
+                        <span class="badge badge-muted">{task.priority}</span>
+                        <span class="task-title">{task.title}</span>
+                        <span class="task-note">{task.notes}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : <p class="state-entry">— none —</p>
+              }
+            </section>
+          ))}
+          {otherStatuses.map((status) => (
+            <section class="syntra-group">
+              <h2>{status} <span class="badge badge-muted">{groupedSyntra[status]?.length || 0}</span></h2>
+              <div class="task-list">
+                {groupedSyntra[status]?.map((task) => (
+                  <div class="task-row">
+                    <span class="task-id">{task.id}</span>
+                    <span class="badge badge-muted">{task.priority}</span>
+                    <span class="task-title">{task.title}</span>
+                    <span class="task-note">{task.notes}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))}
+          <details class="syntra-group done-group">
+            <summary>done <span class="badge badge-green">{groupedSyntra.done?.length || 0}</span></summary>
+            {
+              groupedSyntra.done?.length ? (
+                <div class="task-list">
+                  {groupedSyntra.done.map((task) => (
+                    <div class="task-row">
+                      <span class="task-id">{task.id}</span>
+                      <span class="badge badge-muted">{task.priority}</span>
+                      <span class="task-title">{task.title}</span>
+                      <span class="task-note">{task.notes}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <p class="state-entry">— none —</p>
+            }
+          </details>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="brain-heading">
+        <div class="section-head">
+          <div class="label" id="brain-heading">brain bus</div>
+          <span class="badge badge-muted">queue</span>
+        </div>
+        <div class="queue-counts">
+          <div><span class="queue-number">{brainBus.pending}</span><span>pending</span></div>
+          <div><span class="queue-number">{brainBus.claimed}</span><span>claimed</span></div>
+          <div><span class="queue-number">{brainBus.failed}</span><span>failed</span></div>
+        </div>
+        {
+          brainBus.failedTasks.length > 0 && (
+            <div class="failed-list">
+              <div class="label">failed tasks</div>
+              {brainBus.failedTasks.map((task) => (
+                <div class="failed-task">
+                  <span class="badge badge-red">{task.priority}</span>
+                  <span>{task.action}</span>
+                </div>
+              ))}
+            </div>
+          )
+        }
+      </section>
+    </div>
+  </main>
+  <script>
+    document.querySelectorAll<HTMLFormElement>('.request-form').forEach((form) => {
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const submit = form.querySelector<HTMLButtonElement>('button[type="submit"]');
+        const fields = Object.fromEntries(new FormData(form));
+        if (submit) submit.disabled = true;
+        const response = await fetch(form.action, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(fields),
+        });
+        if (response.ok) {
+          window.location.assign('/tasks');
+          return;
+        }
+        if (submit) submit.disabled = false;
+        window.alert(await response.text());
+      });
+    });
+  </script>
+</body>
+</html>

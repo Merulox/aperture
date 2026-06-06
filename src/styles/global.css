@@ -207,6 +207,259 @@ main {
   color: var(--blue);
 }
 
+.service-table {
+  display: grid;
+  margin-top: 2px;
+}
+
+.service-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(120px, 0.5fr);
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid #1d1d1d;
+  font-size: 0.78rem;
+}
+
+.service-action {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.kill-switches {
+  margin-top: 18px;
+}
+
+.switch-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: #151515;
+  font-size: 0.75rem;
+}
+
+.ledger-groups {
+  display: grid;
+  gap: 18px;
+}
+
+.ledger-group {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.ledger-prefix {
+  color: var(--blue);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.ledger-items {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ledger-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.ledger-id {
+  color: var(--yellow);
+  font-weight: 700;
+}
+
+.nav-link {
+  color: var(--blue);
+  text-decoration: none;
+}
+
+.nav-link:hover,
+.nav-link:focus-visible {
+  text-decoration: underline;
+}
+
+.taskboard,
+.request-list,
+.syntra-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.request-card {
+  padding: 14px;
+  border-left: 3px solid var(--muted);
+  background: #151515;
+}
+
+.request-card.urgency-HIGH {
+  border-left-color: var(--red);
+}
+
+.request-card.urgency-MED {
+  border-left-color: var(--yellow);
+}
+
+.request-meta,
+.request-context,
+.task-note,
+.task-path {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.request-question {
+  margin-top: 8px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.request-context {
+  margin-top: 8px;
+  white-space: pre-wrap;
+}
+
+.request-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.request-form textarea {
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid #2a2a2a;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  padding: 8px;
+}
+
+.request-form button {
+  border: 0;
+  background: var(--blue);
+  color: var(--bg);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 9px 12px;
+}
+
+.ex-grid,
+.task-list {
+  display: grid;
+}
+
+.ex-task {
+  display: grid;
+  grid-template-columns: 24px 48px minmax(140px, 1fr) minmax(140px, 0.7fr);
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid #1d1d1d;
+  font-size: 0.78rem;
+}
+
+.task-path {
+  grid-column: 3 / -1;
+  overflow-wrap: anywhere;
+}
+
+.task-id {
+  color: var(--blue);
+  font-weight: 700;
+}
+
+.syntra-group {
+  padding: 12px;
+  background: #151515;
+}
+
+.attention-group {
+  border-left: 3px solid var(--yellow);
+}
+
+.syntra-group h2,
+.syntra-group summary {
+  margin: 0 0 8px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.syntra-group summary {
+  cursor: pointer;
+}
+
+.done-group[open] summary {
+  margin-bottom: 8px;
+}
+
+.task-row {
+  display: grid;
+  grid-template-columns: 48px 42px minmax(140px, 0.7fr) minmax(160px, 1fr);
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid #222;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.queue-counts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.queue-counts > div {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  background: #151515;
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.queue-number {
+  color: var(--text);
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.failed-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.failed-task {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+}
+
 @media (max-width: 720px) {
   main {
     width: min(100% - 20px, 1180px);
@@ -242,5 +495,23 @@ main {
 
   .decision-text {
     grid-column: 1 / -1;
+  }
+
+  .service-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .service-action {
+    grid-column: 1 / -1;
+  }
+
+  .request-form,
+  .ex-task,
+  .task-row {
+    grid-template-columns: 1fr;
+  }
+
+  .task-path {
+    grid-column: auto;
   }
 }

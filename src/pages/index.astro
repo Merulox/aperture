@@ -2,11 +2,14 @@
 import '../styles/global.css';
 import { getDashboardData } from '../lib/data';
 
-const { health, genesis, vitals, mode } = await getDashboardData();
+const { health, genesis, vitals, mode, monitor } = await getDashboardData();
 
 const statusTone = toneForStatus(health.status);
 const vitalsAgeDays = ageInDays(vitals.ts);
 const vitalsStale = vitalsAgeDays > 7;
+const ledgerGroups = Object.entries(
+  Object.groupBy(monitor.pendingItems, (item) => item.id.charAt(0)),
+).sort(([a], [b]) => a.localeCompare(b));
 
 function toneForStatus(status: string): string {
   if (['ACTIVE', 'OK'].includes(status)) return 'green';
@@ -20,6 +23,14 @@ function urgencyTone(urgency: string): string {
   if (urgency === 'MEDIUM' || urgency === 'MED') return 'yellow';
   if (urgency === 'LOW') return 'muted';
   return 'muted';
+}
+
+function serviceTone(status: string): string {
+  return status.toLowerCase() === 'active' ? 'green' : 'red';
+}
+
+function switchTone(value: boolean | string): string {
+  return value === false || value === 'disabled' ? 'green' : 'yellow';
 }
 
 function formatMoney(value: number): string {
@@ -48,6 +59,7 @@ function ageInDays(timestamp: string): number {
     <header class="topbar">
       <div class="brand">aperture</div>
       <div class="meta">
+        <a href="/tasks" class="nav-link">tasks</a>
         <span class={`badge badge-${statusTone}`}>{health.status}</span>
         <span>tick {health.tick}</span>
         <span>{health.updated}</span>
@@ -135,6 +147,73 @@ function ageInDays(timestamp: string): number {
             </div>
           ))}
         </div>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="system-health-heading">
+        <div class="section-head">
+          <div class="label" id="system-health-heading">system health</div>
+          <span class="badge badge-muted">{monitor.ts || 'feed unavailable'}</span>
+        </div>
+        {
+          monitor.services.length > 0 ? (
+            <div class="service-table">
+              {monitor.services.map((service) => (
+                <div class="service-row">
+                  <span class="service-name">{service.service}</span>
+                  <span class={`badge badge-${serviceTone(service.status)}`}>{service.status}</span>
+                  <span class="service-action">{service.action || 'audit snapshot'}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p class="state-entry">— monitor feed unavailable —</p>
+          )
+        }
+        <div class="kill-switches">
+          <div class="label">kill_switches</div>
+          {
+            Object.entries(monitor.killSwitches).length > 0 ? (
+              <div class="switch-list">
+                {Object.entries(monitor.killSwitches).map(([name, value]) => (
+                  <div class="switch">
+                    <span>{name}</span>
+                    <span class={`badge badge-${switchTone(value)}`}>{String(value)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p class="state-entry">— unavailable —</p>
+            )
+          }
+        </div>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="ledger-heading">
+        <div class="section-head">
+          <div class="label" id="ledger-heading">genesis bug ledger</div>
+          <span class="badge badge-yellow">{monitor.pendingItems.length} unresolved</span>
+        </div>
+        {
+          ledgerGroups.length > 0 ? (
+            <div class="ledger-groups">
+              {ledgerGroups.map(([prefix, items]) => (
+                <div class="ledger-group">
+                  <div class="ledger-prefix">{prefix}</div>
+                  <ul class="ledger-items">
+                    {items?.map((item) => (
+                      <li class="ledger-item">
+                        <span class="ledger-id">{item.id}</span>
+                        <span>{item.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p class="state-entry">— monitor feed unavailable —</p>
+          )
+        }
       </section>
     </div>
   </main>
