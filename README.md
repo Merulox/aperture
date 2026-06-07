@@ -8,6 +8,21 @@ Live at [aperture.merulox.com](https://aperture.merulox.com) (auth-gated).
 
 ---
 
+## The idea
+
+Autonomous systems become dangerous and useless in the same way: their internal
+state becomes harder to see than their outputs.
+
+Aperture exists to keep the operation observable. It favors evidence over
+confidence, explicit failure state over reassuring status, and direct views of
+the files agents actually write over a second database pretending to be truth.
+
+It is deliberately read-only. Aperture does not become the control plane merely
+because it can see the system. Observation, authority, and actuation remain
+separate.
+
+---
+
 ## What it shows
 
 | Section | Source | What it tells you |
