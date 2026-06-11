@@ -33,6 +33,8 @@ export interface ExTask {
   briefExists: boolean;
   prompt: string;
   riskGate: string;
+  dependsOn: string;
+  blocked: boolean;
 }
 
 export interface SyntraTask {
@@ -197,6 +199,7 @@ export async function getExTasks(): Promise<ExTask[]> {
       const briefFile = briefFiles.find((file) => file.startsWith(`${id}-`) && file.endsWith('.md'));
       const briefPath = briefFile ? join(EX_BRIEFS_DIR, briefFile) : '';
       const preview = await getBriefPreview(briefPath);
+      const dependsOn = (cells[6] || '').replace(/^—$/, '').trim();
       return {
         id,
         status,
@@ -206,9 +209,16 @@ export async function getExTasks(): Promise<ExTask[]> {
         ...preview,
         prompt: status === 'briefed' && briefPath ? promptForBrief(briefPath) : '',
         riskGate: cells[5] || '',
+        dependsOn,
+        blocked: false,
       };
     }));
-  return sortTasks(tasks);
+  const statusMap = new Map(tasks.map((task) => [task.id, task.status]));
+  const resolved = tasks.map((task) => ({
+    ...task,
+    blocked: task.dependsOn ? statusMap.get(task.dependsOn) !== 'done' : false,
+  }));
+  return sortTasks(resolved);
 }
 
 export async function getSyntraTasks(): Promise<SyntraTask[]> {

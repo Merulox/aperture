@@ -539,6 +539,23 @@ main {
   opacity: 0.65;
 }
 
+.dep-gate {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.btn-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.dep-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
 .codex-job {
   display: grid;
   grid-template-columns: 48px auto minmax(0, 1fr) auto;

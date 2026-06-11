@@ -35,14 +35,21 @@ function Prompt({ task, jobs, launchingTaskId, onLaunch }: Props & { task: any }
       <div className="prompt-actions">
         <button type="button" className="copy-prompt" onClick={() => void copy()}>{copied ? 'Copied ✓' : 'Copy prompt'}</button>
         {task.status === 'briefed' && (
-          <button
-            type="button"
-            className="launch-codex"
-            disabled={launching || Boolean(running)}
-            onClick={() => void onLaunch(task)}
-          >
-            {launching ? 'Launching...' : running ? `Running (PID ${running.pid})` : 'Send to Codex'}
-          </button>
+          task.blocked ? (
+            <div className="dep-gate">
+              <button type="button" className="launch-codex btn-disabled" disabled>Send to Codex</button>
+              <span className="dep-label">requires {task.dependsOn}</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="launch-codex"
+              disabled={launching || Boolean(running)}
+              onClick={() => void onLaunch(task)}
+            >
+              {launching ? 'Launching...' : running ? `Running (PID ${running.pid})` : 'Send to Codex'}
+            </button>
+          )
         )}
       </div>
     </div>
