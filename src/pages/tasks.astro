@@ -29,6 +29,16 @@ const otherStatuses = Object.keys(groupedSyntra)
     </header>
 
     <div class="taskboard">
+      <section class="panel" id="codex-instances-panel" aria-labelledby="codex-heading">
+        <div class="section-head">
+          <div class="label" id="codex-heading">codex instances</div>
+          <span class="badge badge-muted" id="codex-count">0 running</span>
+        </div>
+        <div id="codex-jobs-list">
+          <p class="state-entry">— no active instances —</p>
+        </div>
+      </section>
+
       <section class="panel" aria-labelledby="requests-heading">
         <div class="section-head">
           <div class="label" id="requests-heading">permission requests</div>
@@ -70,7 +80,21 @@ const otherStatuses = Object.keys(groupedSyntra)
                 {task.prompt && (
                   <div class="prompt-block">
                     <pre>{task.prompt}</pre>
-                    <button type="button" class="copy-prompt" data-prompt={task.prompt}>Copy prompt</button>
+                    <div class="prompt-actions">
+                      <button type="button" class="copy-prompt" data-prompt={task.prompt}>Copy prompt</button>
+                      {task.status === 'briefed' && (
+                        <button
+                          type="button"
+                          class="launch-codex"
+                          data-task-id={task.id}
+                          data-task-title={task.title}
+                          data-brief-path={task.briefPath}
+                          data-prompt={task.prompt}
+                        >
+                          Send to Codex
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
                 {task.briefPath && (
@@ -125,7 +149,21 @@ const otherStatuses = Object.keys(groupedSyntra)
                         {task.prompt && (
                           <div class="prompt-block">
                             <pre>{task.prompt}</pre>
-                            <button type="button" class="copy-prompt" data-prompt={task.prompt}>Copy prompt</button>
+                            <div class="prompt-actions">
+                              <button type="button" class="copy-prompt" data-prompt={task.prompt}>Copy prompt</button>
+                              {task.status === 'briefed' && (
+                                <button
+                                  type="button"
+                                  class="launch-codex"
+                                  data-task-id={task.id}
+                                  data-task-title={task.title}
+                                  data-brief-path={task.briefPath}
+                                  data-prompt={task.prompt}
+                                >
+                                  Send to Codex
+                                </button>
+                              )}
+                            </div>
                           </div>
                         )}
                         {task.briefPath && (
@@ -215,7 +253,72 @@ const otherStatuses = Object.keys(groupedSyntra)
     </div>
   </main>
   <script>
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function elapsed(startedAt, finishedAt) {
+      const end = finishedAt ? new Date(finishedAt) : new Date();
+      const ms = end - new Date(startedAt);
+      const s = Math.floor(ms / 1000);
+      return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+    }
+
+    async function loadJobs() {
+      const response = await fetch('/api/codex-jobs');
+      const { jobs = [] } = await response.json();
+      const panel = document.getElementById('codex-jobs-list');
+      const count = document.getElementById('codex-count');
+
+      const runningJobs = jobs.filter((job) => job.status === 'running');
+      const finishedJobs = jobs.filter((job) => job.status !== 'running');
+      count.textContent = `${runningJobs.length} running`;
+
+      // Sync launch buttons: mark any task with a running job as in-progress
+      const runningByTaskId = new Map(runningJobs.map((j) => [j.taskId, j]));
+      document.querySelectorAll<HTMLButtonElement>('.launch-codex').forEach((btn) => {
+        const running = runningByTaskId.get(btn.dataset.taskId || '');
+        if (running) {
+          btn.textContent = `Running (PID ${running.pid})`;
+          btn.disabled = true;
+        } else if (btn.disabled && btn.textContent !== 'Launching...') {
+          btn.textContent = 'Send to Codex';
+          btn.disabled = false;
+        }
+      });
+
+      if (!jobs.length) {
+        panel.innerHTML = '<p class="state-entry">— no active instances —</p>';
+        return;
+      }
+
+      function jobRow(job: any) {
+        return `
+          <div class="codex-job status-${job.status}">
+            <span class="task-id">${escapeHtml(job.taskId)}</span>
+            <span class="badge badge-${job.status === 'running' ? 'blue' : job.status === 'done' ? 'muted' : 'red'}">${escapeHtml(job.status.toUpperCase())}</span>
+            <span class="task-title">${escapeHtml(job.taskTitle)}</span>
+            <span class="elapsed">${escapeHtml(elapsed(job.startedAt, job.finishedAt))}</span>
+            <pre class="job-log">${escapeHtml(job.logTail || '(no output yet)')}</pre>
+          </div>`;
+      }
+
+      const runningHtml = runningJobs.map(jobRow).join('');
+      const finishedHtml = finishedJobs.length
+        ? `<details class="done-group"><summary>[${finishedJobs.length} completed — click to expand]</summary>${finishedJobs.map(jobRow).join('')}</details>`
+        : '';
+
+      panel.innerHTML = (runningHtml || '<p class="state-entry">— no running instances —</p>') + finishedHtml;
+    }
+
     window.setInterval(() => window.location.reload(), 30_000);
+    loadJobs();
+    window.setInterval(loadJobs, 10_000);
 
     document.querySelectorAll<HTMLButtonElement>('.copy-prompt').forEach((button) => {
       button.addEventListener('click', async () => {
@@ -244,6 +347,38 @@ const otherStatuses = Object.keys(groupedSyntra)
         }
         if (submit) submit.disabled = false;
         window.alert(await response.text());
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('.launch-codex').forEach((button) => {
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        button.textContent = 'Launching...';
+
+        try {
+          const response = await fetch('/api/launch-codex', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              taskId: button.dataset.taskId,
+              taskTitle: button.dataset.taskTitle,
+              briefPath: button.dataset.briefPath,
+              prompt: button.dataset.prompt,
+            }),
+          });
+          const result = await response.json();
+
+          if (response.ok) {
+            button.textContent = `Launched (PID ${result.pid})`;
+            window.setTimeout(() => loadJobs(), 1000);
+            return;
+          }
+        } catch {
+          // Handled below.
+        }
+
+        button.textContent = 'Failed';
+        button.disabled = false;
       });
     });
   </script>
