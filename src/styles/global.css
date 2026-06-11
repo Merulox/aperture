@@ -376,7 +376,7 @@ main {
 
 .ex-task {
   display: grid;
-  grid-template-columns: 24px 48px minmax(140px, 1fr) minmax(140px, 0.7fr);
+  grid-template-columns: 24px auto minmax(140px, 1fr) minmax(140px, 0.7fr);
   gap: 8px;
   padding: 8px 0;
   border-top: 1px solid #1d1d1d;
