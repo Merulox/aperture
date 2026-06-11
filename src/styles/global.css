@@ -490,7 +490,8 @@ main {
   align-items: start;
   gap: 8px;
   padding: 10px;
-  background: var(--bg);
+  background: var(--surface);
+  border: 1px solid #1d1d1d;
 }
 
 .prompt-actions {

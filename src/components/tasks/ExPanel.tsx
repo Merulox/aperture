@@ -71,8 +71,8 @@ function ExTaskRow(props: Props & { task: any; active?: boolean }) {
 }
 
 export function ExPanel(props: Props) {
-  const activeTasks = props.tasks.filter((task) => task.status !== 'done');
-  const doneTasks = props.tasks.filter((task) => task.status === 'done');
+  const activeTasks = props.tasks.filter((task) => task.status !== 'done' && task.status !== 'superseded');
+  const doneTasks = props.tasks.filter((task) => task.status === 'done' || task.status === 'superseded');
 
   return (
     <section className="panel" aria-labelledby="ex-heading">
