@@ -308,9 +308,11 @@ const otherStatuses = Object.keys(groupedSyntra)
           </div>`;
       }
 
+      const wasOpen = panel.querySelector('details[data-key="completed"]')?.hasAttribute('open') ?? false;
+
       const runningHtml = runningJobs.map(jobRow).join('');
       const finishedHtml = finishedJobs.length
-        ? `<details class="done-group"><summary>[${finishedJobs.length} completed — click to expand]</summary>${finishedJobs.map(jobRow).join('')}</details>`
+        ? `<details class="done-group" data-key="completed"${wasOpen ? ' open' : ''}><summary>[${finishedJobs.length} completed — click to expand]</summary>${finishedJobs.map(jobRow).join('')}</details>`
         : '';
 
       panel.innerHTML = (runningHtml || '<p class="state-entry">— no running instances —</p>') + finishedHtml;
