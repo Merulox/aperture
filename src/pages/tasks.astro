@@ -304,7 +304,7 @@ const otherStatuses = Object.keys(groupedSyntra)
             <span class="badge badge-${job.status === 'running' ? 'blue' : job.status === 'done' ? 'muted' : 'red'}">${escapeHtml(job.status.toUpperCase())}</span>
             <span class="task-title">${escapeHtml(job.taskTitle)}</span>
             <span class="elapsed">${escapeHtml(elapsed(job.startedAt, job.finishedAt))}</span>
-            <pre class="job-log">${escapeHtml(job.logTail || '(no output yet)')}</pre>
+            <pre class="job-log" id="log-${job.jobId}">${escapeHtml(job.logTail || '(no output yet)')}</pre>
           </div>`;
       }
 
@@ -314,11 +314,15 @@ const otherStatuses = Object.keys(groupedSyntra)
         : '';
 
       panel.innerHTML = (runningHtml || '<p class="state-entry">— no running instances —</p>') + finishedHtml;
+
+      // Auto-scroll running job logs to bottom
+      panel.querySelectorAll<HTMLElement>('.status-running .job-log').forEach((el) => {
+        el.scrollTop = el.scrollHeight;
+      });
     }
 
-    window.setInterval(() => window.location.reload(), 30_000);
     loadJobs();
-    window.setInterval(loadJobs, 10_000);
+    window.setInterval(loadJobs, 5_000);
 
     document.querySelectorAll<HTMLButtonElement>('.copy-prompt').forEach((button) => {
       button.addEventListener('click', async () => {

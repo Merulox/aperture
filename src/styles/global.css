@@ -489,6 +489,11 @@ main {
   background: var(--bg);
 }
 
+.prompt-actions {
+  display: grid;
+  gap: 6px;
+}
+
 .prompt-block pre,
 .brief-preview pre {
   margin: 0;
@@ -510,6 +515,58 @@ main {
   font-weight: 700;
   padding: 7px 9px;
   white-space: nowrap;
+}
+
+.launch-codex {
+  border: 1px solid var(--green);
+  background: transparent;
+  color: var(--green);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 7px 9px;
+  white-space: nowrap;
+}
+
+.launch-codex:disabled,
+.copy-prompt:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.codex-job {
+  display: grid;
+  grid-template-columns: 48px auto minmax(0, 1fr) auto;
+  gap: 8px 10px;
+  padding: 10px 0;
+  border-top: 1px solid #1d1d1d;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.codex-job:first-child {
+  border-top: 0;
+}
+
+.elapsed {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.job-log {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px;
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.7rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  max-height: 420px;
+  overflow-y: scroll;
 }
 
 .brief-preview {
@@ -607,7 +664,23 @@ main {
     grid-template-columns: 1fr;
   }
 
+  .prompt-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .copy-prompt {
     width: fit-content;
+  }
+
+  .launch-codex {
+    width: 100%;
+  }
+
+  .codex-job {
+    grid-template-columns: 1fr;
+  }
+
+  .elapsed {
+    white-space: normal;
   }
 }
