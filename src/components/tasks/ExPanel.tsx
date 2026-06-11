@@ -57,11 +57,15 @@ function Prompt({ task, jobs, launchingTaskId, onLaunch }: Props & { task: any }
 }
 
 function ExTaskRow(props: Props & { task: any; active?: boolean }) {
-  const { task, active = false } = props;
+  const { task, jobs, active = false } = props;
+  const lastJob = [...jobs].filter(j => j.taskId === task.id).sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0];
+  const failed = lastJob && lastJob.status !== 'running' && lastJob.exitCode !== null && lastJob.exitCode !== 0;
+  const badge = failed ? 'FAIL' : task.statusBadge;
+  const tone = failed ? 'red' : task.statusTone;
   return (
     <div className={`ex-task ${active && task.uninitiated ? 'task-uninitiated' : ''}`}>
       <span className="task-id">{task.id}</span>
-      <span className={`badge badge-${task.statusTone}`}>{task.statusBadge}</span>
+      <span className={`badge badge-${tone}`}>{badge}</span>
       <span className="task-title">{task.title}</span>
       <span className="task-note">{task.riskGate || '—'}</span>
       {active && <Prompt {...props} />}
