@@ -187,14 +187,12 @@ export async function getExTasks(): Promise<ExTask[]> {
   const [content, briefFiles] = await Promise.all([readText(EX_BOARD), listFiles(EX_BRIEFS_DIR)]);
   const tasks = await Promise.all(content
     .split(/\r?\n/)
-    .filter((line) => /^\|\s*EX-\d+\s*\|/.test(line))
+    .filter((line) => /^\|\s*[A-Z]+-\d+[a-z]?\s*\|/.test(line))
     .map(async (line) => {
       const cells = tableCells(line);
       const id = cells[0];
-      const brief = cells[1] || '';
-      const statusEmoji = brief.match(/[✅🔄⬜]/u)?.[0] || '';
-      const status = statusEmoji === '✅' ? 'done' : statusEmoji === '🔄' ? 'in_progress' : statusEmoji === '⬜' ? 'briefed' : 'unknown';
-      const title = brief.replace(/[✅🔄⬜]/gu, '').trim();
+      const status = (cells[1] || 'unknown').replaceAll('`', '');
+      const title = cells[2] || '';
       const briefFile = briefFiles.find((file) => file.startsWith(`${id}-`) && file.endsWith('.md'));
       const briefPath = briefFile ? join(EX_BRIEFS_DIR, briefFile) : '';
       const preview = await getBriefPreview(briefPath);
@@ -206,7 +204,7 @@ export async function getExTasks(): Promise<ExTask[]> {
         briefPath,
         ...preview,
         prompt: status === 'briefed' && briefPath ? promptForBrief(briefPath) : '',
-        riskGate: cells[4] || '',
+        riskGate: cells[5] || '',
       };
     }));
   return sortTasks(tasks);
