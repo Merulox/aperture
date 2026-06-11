@@ -29,6 +29,7 @@ export interface ExTask {
   title: string;
   briefPath: string;
   briefPreview: string;
+  briefContent: string;
   briefExists: boolean;
   prompt: string;
   riskGate: string;
@@ -41,6 +42,7 @@ export interface SyntraTask {
   title: string;
   briefPath: string;
   briefPreview: string;
+  briefContent: string;
   briefExists: boolean;
   prompt: string;
   statusBadge: string;
@@ -99,13 +101,13 @@ async function readText(path: string): Promise<string> {
   }
 }
 
-async function getBriefPreview(path: string): Promise<{ briefPreview: string; briefExists: boolean }> {
-  if (!path) return { briefPreview: '', briefExists: false };
+async function getBriefPreview(path: string): Promise<{ briefPreview: string; briefContent: string; briefExists: boolean }> {
+  if (!path) return { briefPreview: '', briefContent: '', briefExists: false };
   try {
     const content = await readFile(path, 'utf8');
-    return { briefPreview: content.split(/\r?\n/).slice(0, 20).join('\n'), briefExists: true };
+    return { briefPreview: content, briefContent: content, briefExists: true };
   } catch {
-    return { briefPreview: '', briefExists: false };
+    return { briefPreview: '', briefContent: '', briefExists: false };
   }
 }
 
@@ -142,8 +144,8 @@ function promptForBrief(briefPath: string): string {
   const displayPath = briefPath.startsWith(HOME) ? `~${briefPath.slice(HOME.length)}` : briefPath;
   return [
     'Read ~/agent-infra/agents/executor.md.',
-    `Read ${displayPath} and implement it.`,
-    'Report back using ~/agent-infra/templates/implementation-report.md. Paste raw output.',
+    `Then read ${displayPath} and implement it.`,
+    'Report back using ~/agent-infra/templates/implementation-report.md. Paste raw command output — do not summarize.',
   ].join('\n');
 }
 

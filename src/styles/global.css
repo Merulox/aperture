@@ -528,6 +528,8 @@ main {
   padding: 10px;
   background: var(--bg);
   color: var(--text);
+  max-height: 280px;
+  overflow-y: auto;
 }
 
 .ex-done-group {
