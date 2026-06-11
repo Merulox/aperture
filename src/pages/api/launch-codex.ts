@@ -30,6 +30,7 @@ function normalizePath(input: string): string {
 interface WorkContext {
   cwd: string;
   addDirs: string[];
+  skipSandbox?: boolean;
 }
 
 function briefWorkContext(briefPath: string): WorkContext {
@@ -52,7 +53,7 @@ function briefWorkContext(briefPath: string): WorkContext {
   }
 
   if (resolved.startsWith(`${syntra}/`) || resolved === syntra) {
-    return { cwd: syntra, addDirs: [] };
+    return { cwd: syntra, addDirs: [], skipSandbox: true };
   }
 
   return { cwd: dirname(resolved), addDirs: [] };
@@ -91,14 +92,16 @@ export const POST: APIRoute = async ({ request }) => {
   const startedAt = new Date().toISOString();
   const jobPath = join(JOBS_DIR, `${jobId}.json`);
   const logPath = join(JOBS_DIR, `${jobId}.log`);
-  const { cwd, addDirs } = briefWorkContext(briefPath);
+  const { cwd, addDirs, skipSandbox = false } = briefWorkContext(briefPath);
 
   await mkdir(JOBS_DIR, { recursive: true });
   const logHandle = await open(logPath, 'a');
 
   let child;
   try {
-    const codexArgs = ['exec', '-', '-C', cwd, '-s', 'workspace-write'];
+    const codexArgs = skipSandbox
+      ? ['exec', '-', '-C', cwd, '--dangerously-skip-sandbox']
+      : ['exec', '-', '-C', cwd, '-s', 'workspace-write'];
     for (const dir of addDirs) {
       codexArgs.push('--add-dir', dir);
     }
@@ -132,9 +135,9 @@ export const POST: APIRoute = async ({ request }) => {
   child.once('error', async () => {
     await updateJobRecord(jobPath, (current) => ({
       ...current,
-      status: 'failed',
-      exitCode: null,
-      finishedAt: new Date().toISOString(),
+      status: current.status === 'running' ? 'failed' : current.status,
+      exitCode: current.exitCode,
+      finishedAt: current.finishedAt ?? new Date().toISOString(),
     }));
   });
 

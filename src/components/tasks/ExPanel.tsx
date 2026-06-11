@@ -59,7 +59,7 @@ function Prompt({ task, jobs, launchingTaskId, onLaunch }: Props & { task: any }
 function ExTaskRow(props: Props & { task: any; active?: boolean }) {
   const { task, jobs, active = false } = props;
   const lastJob = [...jobs].filter(j => j.taskId === task.id).sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())[0];
-  const failed = lastJob && lastJob.status !== 'running' && lastJob.exitCode !== null && lastJob.exitCode !== 0;
+  const failed = lastJob && (lastJob.status === 'failed' || (lastJob.status === 'done' && lastJob.exitCode !== null && lastJob.exitCode !== 0));
   const badge = failed ? 'FAIL' : task.statusBadge;
   const tone = failed ? 'red' : task.statusTone;
   return (

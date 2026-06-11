@@ -10,6 +10,7 @@
     "start": "HOST=0.0.0.0 PORT=8788 node dist/server/entry.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.1",
     "@astrojs/node": "^9.0.0",
     "@astrojs/react": "^5.0.7",
     "astro": "^5.0.0",
