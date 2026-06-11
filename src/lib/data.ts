@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 
 const HEALTH_PATH = '/home/merulox/obsidian/knowledge/projects/genesis/health.json';
@@ -103,6 +104,13 @@ export type MonitorData = {
   pendingItems: BugLedgerItem[];
 };
 
+export type BackupStatus = {
+  lastRun: string;
+  nextRun: string;
+  ok: boolean;
+  exitCode: number | null;
+};
+
 export type DashboardData = {
   health: HealthData;
   genesis: GenesisState;
@@ -112,6 +120,7 @@ export type DashboardData = {
     goal: string;
   };
   monitor: MonitorData;
+  backup: BackupStatus;
 };
 
 export async function getDashboardData(): Promise<DashboardData> {
@@ -132,7 +141,60 @@ export async function getDashboardData(): Promise<DashboardData> {
       goal: mode.modes[mode.current]?.goal ?? '—',
     },
     monitor,
+    backup: readBackupStatus(),
   };
+}
+
+function readBackupStatus(): BackupStatus {
+  const fallback: BackupStatus = {
+    lastRun: 'unknown',
+    nextRun: 'unknown',
+    ok: true,
+    exitCode: null,
+  };
+
+  try {
+    const timerOut = execSync(
+      'systemctl --user show backup-r2.timer --property=LastTriggerUSec,NextElapseUSecRealtime',
+      { encoding: 'utf8', timeout: 3000 },
+    );
+    const svcOut = execSync(
+      'systemctl --user show backup-r2.service --property=ExecMainStatus,ActiveEnterTimestamp',
+      { encoding: 'utf8', timeout: 3000 },
+    );
+
+    const lines = [...timerOut.split('\n'), ...svcOut.split('\n')];
+    const props = Object.fromEntries(
+      lines
+        .filter((line) => line.includes('='))
+        .map((line) => line.split('=', 2) as [string, string]),
+    );
+
+    const parseUsec = (usec: string): string => {
+      const n = Number(usec);
+      if (!n) return 'never';
+      return new Date(n / 1000).toLocaleString('en-CA', {
+        timeZone: 'America/Toronto',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+    };
+
+    const exitCode = props.ExecMainStatus ? Number(props.ExecMainStatus) : null;
+
+    return {
+      lastRun: parseUsec(props.LastTriggerUSec ?? '0'),
+      nextRun: parseUsec(props.NextElapseUSecRealtime ?? '0'),
+      ok: exitCode === null || exitCode === 0,
+      exitCode,
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 async function readJson<T>(path: string): Promise<T> {

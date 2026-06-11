@@ -2,7 +2,7 @@
 import '../styles/global.css';
 import { getDashboardData } from '../lib/data';
 
-const { health, genesis, vitals, mode, monitor } = await getDashboardData();
+const { health, genesis, vitals, mode, monitor, backup } = await getDashboardData();
 
 const statusTone = toneForStatus(health.status);
 const vitalsAgeDays = ageInDays(vitals.ts);
@@ -154,21 +154,22 @@ function ageInDays(timestamp: string): number {
           <div class="label" id="system-health-heading">system health</div>
           <span class="badge badge-muted">{monitor.ts || 'feed unavailable'}</span>
         </div>
-        {
-          monitor.services.length > 0 ? (
-            <div class="service-table">
-              {monitor.services.map((service) => (
-                <div class="service-row">
-                  <span class="service-name">{service.service}</span>
-                  <span class={`badge badge-${serviceTone(service.status)}`}>{service.status}</span>
-                  <span class="service-action">{service.action || 'audit snapshot'}</span>
-                </div>
-              ))}
+        <div class="service-table">
+          <div class="service-row">
+            <span class="service-name">backup-r2</span>
+            <span class={`badge badge-${backup.ok ? 'green' : 'red'}`}>
+              {backup.ok ? 'OK' : `FAILED (exit ${backup.exitCode})`}
+            </span>
+            <span class="service-action">last: {backup.lastRun} · next: {backup.nextRun}</span>
+          </div>
+          {monitor.services.length > 0 && monitor.services.map((service) => (
+            <div class="service-row">
+              <span class="service-name">{service.service}</span>
+              <span class={`badge badge-${serviceTone(service.status)}`}>{service.status}</span>
+              <span class="service-action">{service.action || 'audit snapshot'}</span>
             </div>
-          ) : (
-            <p class="state-entry">— monitor feed unavailable —</p>
-          )
-        }
+          ))}
+        </div>
         <div class="kill-switches">
           <div class="label">kill_switches</div>
           {
