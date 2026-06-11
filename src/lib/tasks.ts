@@ -127,6 +127,7 @@ function classifyStatus(status: string): {
   if (status === 'briefed') return { statusBadge: 'READY', statusTone: 'green', uninitiated: true };
   if (status === 'backlog') return { statusBadge: 'NO BRIEF', statusTone: 'yellow', uninitiated: true };
   if (status === 'in_progress') return { statusBadge: 'RUNNING', statusTone: 'blue', uninitiated: false };
+  if (status === 'review') return { statusBadge: 'VERIFY', statusTone: 'orange', uninitiated: false };
   if (status === 'done') return { statusBadge: 'DONE', statusTone: 'muted', uninitiated: false };
   return { statusBadge: status || 'unknown', statusTone: 'muted', uninitiated: false };
 }
@@ -214,7 +215,7 @@ export async function getSyntraTasks(): Promise<SyntraTask[]> {
   const content = await readText(SYNTRA_TASKS);
   const tasks = await Promise.all(content
     .split(/\r?\n/)
-    .filter((line) => /^\|\s*[A-Z]+-\d+\s*\|/.test(line))
+    .filter((line) => /^\|\s*[A-Z]+-\d+[a-z]?\s*\|/.test(line))
     .map(async (line) => {
       const cells = tableCells(line);
       const status = (cells[1] || 'unknown').replaceAll('`', '');

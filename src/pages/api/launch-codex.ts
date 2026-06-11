@@ -98,7 +98,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   let child;
   try {
-    const codexArgs = ['exec', '-', '-C', cwd];
+    const codexArgs = ['exec', '-', '-C', cwd, '-s', 'workspace-write'];
     for (const dir of addDirs) {
       codexArgs.push('--add-dir', dir);
     }
