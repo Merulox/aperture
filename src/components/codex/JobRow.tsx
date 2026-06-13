@@ -21,6 +21,7 @@ function elapsed(startedAt: string, finishedAt: string | null): string {
 export function JobRow({ job }: { job: Job }) {
   const logRef = useRef<HTMLPreElement>(null);
   const [lines, setLines] = useState<string[]>(job.logTail ? job.logTail.split('\n') : []);
+  const [summary, setSummary] = useState('');
 
   useEffect(() => {
     if (job.status !== 'running') return;
@@ -32,6 +33,17 @@ export function JobRow({ job }: { job: Job }) {
     };
     es.addEventListener('done', () => es.close());
     return () => es.close();
+  }, [job.jobId, job.status]);
+
+  useEffect(() => {
+    if (job.status !== 'running') return;
+    const refresh = () =>
+      fetch(`/api/summarize-job?jobId=${job.jobId}`)
+        .then(r => r.json())
+        .then(d => setSummary(d.summary || ''));
+    refresh();
+    const t = setInterval(refresh, 15_000);
+    return () => clearInterval(t);
   }, [job.jobId, job.status]);
 
   const tone = job.status === 'running' ? 'blue' : job.status === 'done' ? 'muted' : 'red';
@@ -48,6 +60,7 @@ export function JobRow({ job }: { job: Job }) {
           <p>{job.blockedReason}</p>
         </details>
       )}
+      {summary && <span className="job-summary">{summary}</span>}
       <pre className="job-log" ref={logRef}>{log || '(no output yet)'}</pre>
     </div>
   );

@@ -12,9 +12,10 @@ const groups: Array<{ owner: ActionItem['owner']; label: string }> = [
   { owner: 'executor', label: 'EXECUTORS' },
   { owner: 'architect', label: 'ARCHITECT' },
 ];
+const filteredActions = initial.actions.flatMap((item) => item.filteredItems ?? []);
 const counts = Object.fromEntries(groups.map(({ owner }) => [owner, initial.actions.filter((item) => item.owner === owner).length]));
 ---
-<section class={`panel panel-wide now-panel ${compact ? 'now-panel-compact' : ''}`} aria-labelledby="now-heading" data-now-panel>
+<section class={`panel panel-wide now-panel ${compact ? 'now-panel-compact' : ''}`} aria-labelledby="now-heading" data-now-panel data-compact={compact ? 'true' : 'false'}>
   <div class="section-head">
     <a class="label now-title" id="now-heading" href="/now">now</a>
     <span class="badge badge-muted" data-now-counts>YOU: {counts.merulox} · EXEC: {counts.executor} · ARCH: {counts.architect}</span>
@@ -39,6 +40,22 @@ const counts = Object.fromEntries(groups.map(({ owner }) => [owner, initial.acti
       </section>
     ))}
   </div>
+  {!compact && filteredActions.length > 0 && (
+    <details class="now-action" data-filtered-actions>
+      <summary><span class="badge badge-muted">week</span><span>show filtered ({filteredActions.length})</span></summary>
+      <div class="now-list">
+        {filteredActions.map((item) => (
+          <details class={`now-action urgency-${item.urgency}`}>
+            <summary>
+              <span class="badge badge-muted">{item.urgency}</span>
+              {item.link ? <a href={item.link}>{item.title}</a> : <span>{item.title}</span>}
+            </summary>
+            <p>{item.why} <span class="now-source">[{item.source}]</span></p>
+          </details>
+        ))}
+      </div>
+    </details>
+  )}
 </section>
 
 <script>
@@ -49,6 +66,8 @@ const counts = Object.fromEntries(groups.map(({ owner }) => [owner, initial.acti
   const tones = { now: 'red', today: 'yellow', week: 'muted' };
 
   function render(panel: HTMLElement, data: any) {
+    const compact = panel.dataset.compact === 'true';
+    const filteredActions = data.actions.flatMap((item: any) => item.filteredItems ?? []);
     const counts = { merulox: 0, executor: 0, architect: 0 };
     for (const item of data.actions) counts[item.owner as keyof typeof counts]++;
     panel.querySelector<HTMLElement>('[data-active-rule]')!.textContent = data.activeRule;
@@ -67,6 +86,23 @@ const counts = Object.fromEntries(groups.map(({ owner }) => [owner, initial.acti
           </details>`).join('') : '<p class="state-entry">— none —</p>';
         return `<section class="now-group" data-owner="${owner}"><h2>${label}</h2><div class="now-list">${content}</div></section>`;
       }).join('');
+    panel.querySelector('[data-filtered-actions]')?.remove();
+    if (!compact && filteredActions.length > 0) {
+      panel.insertAdjacentHTML('beforeend', `
+        <details class="now-action" data-filtered-actions>
+          <summary><span class="badge badge-muted">week</span><span>show filtered (${filteredActions.length})</span></summary>
+          <div class="now-list">
+            ${filteredActions.map((item: any) => `
+              <details class="now-action urgency-${escapeHtml(item.urgency)}">
+                <summary>
+                  <span class="badge badge-muted">${escapeHtml(item.urgency)}</span>
+                  ${item.link ? `<a href="${escapeHtml(item.link)}">${escapeHtml(item.title)}</a>` : `<span>${escapeHtml(item.title)}</span>`}
+                </summary>
+                <p>${escapeHtml(item.why)} <span class="now-source">[${escapeHtml(item.source)}]</span></p>
+              </details>`).join('')}
+          </div>
+        </details>`);
+    }
   }
 
   async function refreshNow() {

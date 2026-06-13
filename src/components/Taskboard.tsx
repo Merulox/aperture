@@ -5,6 +5,7 @@ import { ExPanel } from './tasks/ExPanel';
 import { SyntraPanel } from './tasks/SyntraPanel';
 import { PermissionRequests } from './tasks/PermissionRequests';
 import { BrainBus } from './tasks/BrainBus';
+import { EscalationPanel } from './tasks/EscalationPanel';
 
 export interface LaunchTask {
   id: string;
@@ -95,6 +96,7 @@ export default function Taskboard() {
       </header>
       <div className="taskboard">
         <PermissionRequests items={data?.permissionRequests ?? []} onResponded={refreshData} />
+        <EscalationPanel />
         <ExPanel tasks={overlayJobs(data?.exTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
         <SyntraPanel tasks={overlayJobs(data?.syntraTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
         <CodexPanel jobs={jobs} />

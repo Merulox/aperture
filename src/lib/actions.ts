@@ -31,6 +31,7 @@ export interface ActionItem {
   urgency: ActionUrgency;
   source: string;
   link?: string;
+  filteredItems?: ActionItem[];
 }
 
 export interface NextActions {
@@ -43,6 +44,7 @@ interface LeadRow {
   phone: string;
   name: string;
   stage?: string;
+  classification?: string;
   postpone_until?: string;
   postpone_note?: string;
   notes?: string;
@@ -101,21 +103,28 @@ async function collectCrm(): Promise<ActionItem[]> {
       FROM conversations c
       WHERE junk = 0
     )
-    SELECT l.phone, COALESCE(NULLIF(l.name_v2, ''), l.name) AS name, latest.body AS last_inbound_body,
+    SELECT l.phone, l.name, l.stage, latest.classification,
+      latest.body AS last_inbound_body,
       ROUND((julianday('now') - julianday(latest.ts)) * 24, 1) AS hours_since_reply
     FROM latest JOIN leads l ON l.phone = latest.lead_phone
     WHERE latest.rn = 1 AND latest.direction = 'in'
     ORDER BY latest.ts ASC;
   `);
+  const liveUnanswered = unanswered.filter((lead) =>
+    !['STOP', 'DEAD'].includes(lead.stage?.toUpperCase() ?? '') &&
+    !['STOP', 'BOUNCE'].includes(lead.classification?.toUpperCase() ?? '') &&
+    (lead.hours_since_reply ?? 0) <= 14 * 24
+  );
+  const filteredUnanswered = unanswered.filter((lead) => !liveUnanswered.includes(lead));
   const due = await sqliteJson<LeadRow>(`
-    SELECT phone, COALESCE(NULLIF(name_v2, ''), name) AS name, stage, postpone_until, postpone_note, notes
+    SELECT phone, name, stage, postpone_until, postpone_note, notes
     FROM leads
     WHERE postpone_until IS NOT NULL
       AND date(postpone_until) <= date('now', '+1 day')
     ORDER BY date(postpone_until), name;
   `);
   const stale = await sqliteJson<LeadRow>(`
-    SELECT phone, COALESCE(NULLIF(name_v2, ''), name) AS name, stage, last_outbound_ts, last_inbound_ts
+    SELECT phone, name, stage, last_outbound_ts, last_inbound_ts
     FROM leads
     WHERE stage IN ('REPLIED', 'RESPONDED')
       AND last_outbound_ts IS NOT NULL
@@ -124,7 +133,7 @@ async function collectCrm(): Promise<ActionItem[]> {
   `);
 
   return [
-    ...unanswered.map((lead): ActionItem => ({
+    ...liveUnanswered.map((lead): ActionItem => ({
       id: `unanswered-${lead.phone}`,
       title: `Reply to ${leadName(lead)}`,
       why: `Inbound reply waiting ${lead.hours_since_reply ?? '?'}h${lead.last_inbound_body ? `: ${lead.last_inbound_body}` : ''}`,
@@ -133,6 +142,24 @@ async function collectCrm(): Promise<ActionItem[]> {
       source: 'crm-unanswered',
       link: leadsPageExists ? `/leads?phone=${encodeURIComponent(lead.phone)}` : undefined,
     })),
+    ...(filteredUnanswered.length > 0 ? [{
+      id: 'unanswered-filtered-rollup',
+      title: `${filteredUnanswered.length} older unanswered threads — review in /leads`,
+      why: 'Older, STOP, DEAD, and bounced inbound threads are hidden from the urgent bucket.',
+      owner: 'merulox' as const,
+      urgency: 'week' as const,
+      source: 'crm-unanswered',
+      link: leadsPageExists ? '/leads' : undefined,
+      filteredItems: filteredUnanswered.map((lead): ActionItem => ({
+        id: `unanswered-filtered-${lead.phone}`,
+        title: `Reply to ${leadName(lead)}`,
+        why: `Inbound reply waiting ${lead.hours_since_reply ?? '?'}h${lead.last_inbound_body ? `: ${lead.last_inbound_body}` : ''}`,
+        owner: 'merulox',
+        urgency: 'week',
+        source: 'crm-unanswered',
+        link: leadsPageExists ? `/leads?phone=${encodeURIComponent(lead.phone)}` : undefined,
+      })),
+    }] : []),
     ...due.map((lead): ActionItem => ({
       id: `due-${lead.phone}`,
       title: `Follow up with ${leadName(lead)} (${lead.postpone_until})`,
