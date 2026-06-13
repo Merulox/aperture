@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { appendFile, open, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { appendFile, glob, open, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -189,17 +189,26 @@ function contextForMatch(content: string, index: number, length: number): string
   return surrounding.trim().slice(0, 400);
 }
 
+const HARD_BLOCK = /must .* authorize|authorize the required|outside .* FILES IT OWNS|not in FILES IT OWNS|MISSING_DEP|BRIEF_ERROR|NEEDS_CLARIFICATION|command not found|no such file or directory/i;
+const EXPECTED_LIMITATION = /live .*(verification|endpoint|api)|service (?:was|is)?\s*not running|could not (?:curl|reach|connect)|localhost|\bgit\b.*(?:prohibit|forbid|read-only|not allowed|unavailable)|\.git\/|systemctl|user scope bus|verification .*pending|unverified because|restart .*(?:not run|pending)/i;
+
+function substantiveBlockers(content: string): string | undefined {
+  const remaining = content
+    .split(/\r?\n/)
+    .filter((line) => !EXPECTED_LIMITATION.test(line))
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join('\n');
+  const normalized = remaining.replace(/^(?:[-*+]\s*|\d+[.)]\s*)/gm, '').trim();
+  if (!normalized || /^(?:none|n\/a)\.?$/i.test(normalized)) return undefined;
+  return remaining.slice(0, 400);
+}
+
 export function blockedReasonFor(content: string): string | undefined {
-  const direct = /read-only file system|outside .* sandbox|permission denied|could not be written|relaunch with|is outside .* FILES IT OWNS|operation not permitted/i.exec(content);
+  const direct = HARD_BLOCK.exec(content);
   if (direct?.index !== undefined) return contextForMatch(content, direct.index, direct[0].length);
 
-  const blockers = sectionBody(content, 'Blockers or open questions');
-  if (blockers && !/^(?:none|n\/a)\.?$/i.test(blockers)) return blockers.slice(0, 400);
-
-  const deviations = sectionBody(content, 'Deviations from the brief');
-  const skipped = /not executed|not modified|could not|was not run/i.exec(deviations);
-  if (skipped?.index !== undefined) return contextForMatch(deviations, skipped.index, skipped[0].length);
-  return undefined;
+  return substantiveBlockers(sectionBody(content, 'Blockers or open questions'));
 }
 
 export function restartAfterServices(content: string): string[] {
@@ -212,6 +221,119 @@ export function restartAfterServices(content: string): string[] {
 
 async function appendJobLog(logPath: string, line: string): Promise<void> {
   await appendFile(logPath, `${line}\n`, 'utf8').catch(() => {});
+}
+
+function isExcludedCommitPath(path: string): boolean {
+  const name = basename(path);
+  if (/\.db$|\.sqlite.*$|\.bak-/i.test(name)) return true;
+
+  const parts = path.split(/[\\/]+/);
+  const underBorealLeads = parts.includes('boreal-leads');
+  return underBorealLeads && !/\.(?:md|py|yaml|json)$/i.test(name);
+}
+
+function hasGlobMagic(path: string): boolean {
+  return /[*?[\]{}]/.test(path);
+}
+
+async function filesUnder(path: string): Promise<string[]> {
+  const entry = await stat(path).catch(() => null);
+  if (!entry) return [];
+  if (!entry.isDirectory()) return [path];
+
+  const children = await readdir(path, { withFileTypes: true }).catch(() => []);
+  const files = await Promise.all(children
+    .filter((child) => child.name !== '.git')
+    .map((child) => filesUnder(join(path, child.name))));
+  return files.flat();
+}
+
+async function resolvedOwnedPaths(briefPath: string): Promise<string[]> {
+  const content = await readFile(briefPath, 'utf8').catch(() => '');
+  const defaultRoot = defaultWorkRoot(briefPath);
+  const expanded = await Promise.all(ownedPathTokens(content).map(async (token) => {
+    const path = token.startsWith('~/')
+      ? join(HOME, token.slice(2))
+      : isAbsolute(token)
+        ? token
+        : resolve(defaultRoot, token);
+    if (hasGlobMagic(path)) {
+      const matches: string[] = [];
+      for await (const match of glob(path)) matches.push(resolve(match));
+      return (await Promise.all(matches.map(filesUnder))).flat();
+    }
+    return filesUnder(path);
+  }));
+
+  return [...new Set(expanded.flat().filter((path) => !isExcludedCommitPath(path)))];
+}
+
+async function gitRepoRoot(path: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', dirname(path), 'rev-parse', '--show-toplevel']);
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function applyCommit(
+  briefPath: string,
+  logPath: string,
+  taskId: string,
+  taskTitle: string,
+  jobId: string,
+): Promise<void> {
+  const paths = await resolvedOwnedPaths(briefPath);
+  const roots = await Promise.all(paths.map(gitRepoRoot));
+  const pathsByRepo = new Map<string, string[]>();
+  for (const [index, root] of roots.entries()) {
+    if (!root) continue;
+    const repoPaths = pathsByRepo.get(root) ?? [];
+    repoPaths.push(relative(root, paths[index]));
+    pathsByRepo.set(root, repoPaths);
+  }
+
+  for (const [root, ownedPaths] of pathsByRepo) {
+    try {
+      await execFileAsync('git', ['-C', root, 'add', '--', ...ownedPaths]);
+    } catch (error) {
+      const result = error as Error & { stdout?: string; stderr?: string };
+      const reason = result.stderr?.trim() || result.stdout?.trim() || result.message;
+      await appendJobLog(logPath, `[aperture] commit ${taskId} @ ${root}: failed (${reason.slice(0, 300)})`);
+      continue;
+    }
+
+    try {
+      await execFileAsync('git', ['-C', root, 'diff', '--cached', '--quiet']);
+      await appendJobLog(logPath, `[aperture] commit ${taskId}: no changes in ${root}`);
+      continue;
+    } catch (error) {
+      const result = error as Error & { code?: number | string; stdout?: string; stderr?: string };
+      if (result.code === 1) {
+        // Exit 1 means the staged diff is non-empty.
+      } else {
+        const reason = result.stderr?.trim() || result.stdout?.trim() || result.message;
+        await appendJobLog(logPath, `[aperture] commit ${taskId} @ ${root}: failed (${reason.slice(0, 300)})`);
+        continue;
+      }
+    }
+
+    try {
+      // Local commits only. Aperture must never push executor work.
+      await execFileAsync('git', [
+        '-C', root, 'commit',
+        '-m', `${taskId}: ${taskTitle} [executor]`,
+        '-m', `job ${jobId} · brief ${basename(briefPath)}`,
+      ]);
+      const { stdout } = await execFileAsync('git', ['-C', root, 'rev-parse', '--short', 'HEAD']);
+      await appendJobLog(logPath, `[aperture] commit ${taskId} @ ${root}: ${stdout.trim()}`);
+    } catch (error) {
+      const result = error as Error & { stdout?: string; stderr?: string };
+      const reason = result.stderr?.trim() || result.stdout?.trim() || result.message;
+      await appendJobLog(logPath, `[aperture] commit ${taskId} @ ${root}: failed (${reason.slice(0, 300)})`);
+    }
+  }
 }
 
 async function applyRestarts(briefPath: string, logPath: string): Promise<void> {
@@ -290,6 +412,7 @@ export const POST: APIRoute = async ({ request }) => {
     child = spawn(CODEX_CLI, codexArgs, {
       cwd,
       detached: true,
+      env: { ...process.env, APERTURE_JOB_ID: jobId },
       stdio: ['pipe', logHandle.fd, logHandle.fd],
     });
     child.stdin?.end(`${prompt}\n`);
@@ -332,7 +455,11 @@ export const POST: APIRoute = async ({ request }) => {
       finishedAt: new Date().toISOString(),
       ...(blockedReason ? { blockedReason } : {}),
     }));
-    if (status === 'done') await applyRestarts(normalizePath(briefPath), logPath);
+    if (status === 'done') {
+      const resolvedBrief = normalizePath(briefPath);
+      await applyCommit(resolvedBrief, logPath, taskId, taskTitle, jobId);
+      await applyRestarts(resolvedBrief, logPath);
+    }
   });
 
   child.unref();
