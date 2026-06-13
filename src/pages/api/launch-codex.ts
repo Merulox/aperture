@@ -1,12 +1,27 @@
 import type { APIRoute } from 'astro';
-import { open, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
+import { open, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { execFile, spawn } from 'node:child_process';
 import { homedir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { promisify } from 'node:util';
 
+const execFileAsync = promisify(execFile);
 const HOME = homedir();
 const JOBS_DIR = join(HOME, '.local/share/aperture/jobs');
 const CODEX_CLI = '/run/current-system/sw/bin/codex';
+const AGENT_INFRA = join(HOME, 'agent-infra');
+const APERTURE = join(HOME, 'projects/aperture');
+const SYNTRA = join(HOME, 'syntra');
+const WEBSITE = join(HOME, 'website');
+const KNOWN_ROOTS = [
+  join(HOME, '.local/share/boreal-outreach'),
+  join(HOME, 'projects/boreal-leads'),
+  APERTURE,
+  AGENT_INFRA,
+  SYNTRA,
+  join(HOME, 'scripts'),
+  WEBSITE,
+].sort((a, b) => b.length - a.length);
 
 interface JobRecord {
   jobId: string;
@@ -31,32 +46,121 @@ interface WorkContext {
   cwd: string;
   addDirs: string[];
   skipSandbox?: boolean;
+  skipGitRepoCheck?: boolean;
+  warning?: string;
 }
 
-function briefWorkContext(briefPath: string): WorkContext {
+function isWithin(path: string, root: string): boolean {
+  const remainder = relative(root, path);
+  return remainder === '' || (!remainder.startsWith('..') && !isAbsolute(remainder));
+}
+
+function briefRepo(resolvedBrief: string): string {
+  if (isWithin(resolvedBrief, AGENT_INFRA)) return AGENT_INFRA;
+  if (isWithin(resolvedBrief, SYNTRA)) return SYNTRA;
+  if (isWithin(resolvedBrief, APERTURE)) return APERTURE;
+  if (isWithin(resolvedBrief, WEBSITE)) return WEBSITE;
+  return dirname(resolvedBrief);
+}
+
+function defaultWorkRoot(resolvedBrief: string): string {
+  const briefName = basename(resolvedBrief);
+  if (isWithin(resolvedBrief, AGENT_INFRA) && /^AP-\d/.test(briefName)) return APERTURE;
+  if (isWithin(resolvedBrief, AGENT_INFRA) && /^WEB-/.test(briefName)) return WEBSITE;
+  return briefRepo(resolvedBrief);
+}
+
+function ownedPathTokens(content: string): string[] {
+  const lines = content.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === '## FILES IT OWNS');
+  if (start < 0) return [];
+  const end = lines.findIndex((line, index) => index > start && line.startsWith('## '));
+  const section = lines.slice(start + 1, end < 0 ? undefined : end);
+  const pathLike = /^(?:~\/|\/|\.{1,2}\/|src\/|api\/|package\.json$|astro\.config\.mjs$|\.gitignore$)/;
+
+  return section
+    .flatMap((line) => {
+      const trimmed = line.trim().replace(/^-\s+/, '');
+      if (!trimmed || trimmed.startsWith('```') || /^\*\*[^`]+:\*\*$/.test(trimmed)) return [];
+      const ownedPrefix = trimmed.split(/\s+(?:\(|—|--)\s*/)[0];
+      const quoted = [...ownedPrefix.matchAll(/`([^`]+)`/g)].map((match) => match[1].trim());
+      const bare = [...ownedPrefix.matchAll(/(?:^|[\s,+])((?:~\/|\/|\.{1,2}\/|src\/|api\/)[^\s,;+`]+)/g)]
+        .map((match) => match[1].trim());
+      return [...quoted, ...bare]
+        .map((token) => token.replace(/[.,:;]+$/, ''))
+        .filter((token) => pathLike.test(token));
+    })
+    .filter(Boolean);
+}
+
+async function existingAncestor(path: string): Promise<string> {
+  let candidate = path;
+  while (candidate !== dirname(candidate)) {
+    try {
+      return (await stat(candidate)).isDirectory() ? candidate : dirname(candidate);
+    } catch {
+      candidate = dirname(candidate);
+    }
+  }
+  return candidate;
+}
+
+function mapToWritableRoot(path: string): string {
+  return KNOWN_ROOTS.find((root) => isWithin(path, root)) ?? path;
+}
+
+async function isInGitRepo(path: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', path, 'rev-parse', '--is-inside-work-tree']);
+    return stdout.trim() === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export async function briefWorkContext(briefPath: string): Promise<WorkContext> {
   const resolved = normalizePath(briefPath);
-  const agentInfra = join(HOME, 'agent-infra');
-  const syntra = join(HOME, 'syntra');
-  const aperture = join(HOME, 'projects/aperture');
-  const briefName = basename(resolved);
+  const ownRepo = briefRepo(resolved);
+  const defaultRoot = defaultWorkRoot(resolved);
 
-  if (resolved.startsWith(`${agentInfra}/`) || resolved === agentInfra) {
-    // AP-* briefs work in aperture; all others work in agent-infra
-    if (/^AP-\d/.test(briefName)) {
-      return { cwd: aperture, addDirs: [agentInfra] };
-    }
-    // WEB-* briefs need ~/.config writable
-    if (/^WEB-/.test(briefName)) {
-      return { cwd: agentInfra, addDirs: [join(HOME, '.config')] };
-    }
-    return { cwd: agentInfra, addDirs: [] };
+  if (isWithin(resolved, SYNTRA)) {
+    return { cwd: SYNTRA, addDirs: [], skipSandbox: true };
   }
 
-  if (resolved.startsWith(`${syntra}/`) || resolved === syntra) {
-    return { cwd: syntra, addDirs: [], skipSandbox: true };
+  let tokens: string[] = [];
+  try {
+    tokens = ownedPathTokens(await readFile(resolved, 'utf8'));
+  } catch {
+    // The fallback below preserves the existing repo-only behavior.
+  }
+  if (!tokens.length) {
+    return {
+      cwd: defaultRoot,
+      addDirs: defaultRoot === ownRepo ? [] : [ownRepo],
+      skipGitRepoCheck: !(await isInGitRepo(defaultRoot)),
+      warning: '[aperture] WARN: could not derive work-roots from brief; running with repo-only write access',
+    };
   }
 
-  return { cwd: dirname(resolved), addDirs: [] };
+  const roots = await Promise.all(tokens.map(async (token) => {
+    const expanded = token.startsWith('~/')
+      ? join(HOME, token.slice(2))
+      : isAbsolute(token)
+        ? token
+        : resolve(defaultRoot, token);
+    return mapToWritableRoot(await existingAncestor(expanded));
+  }));
+  const counts = new Map<string, number>();
+  for (const root of roots) counts.set(root, (counts.get(root) ?? 0) + 1);
+
+  let cwd = defaultRoot;
+  if (!/^AP-\d/.test(basename(resolved)) && !/^WEB-/.test(basename(resolved))) {
+    const highestCount = Math.max(...counts.values());
+    const candidates = [...counts.entries()].filter(([, count]) => count === highestCount).map(([root]) => root);
+    cwd = candidates.length > 1 ? ownRepo : candidates[0];
+  }
+  const addDirs = [...new Set([...roots.filter((root) => root !== cwd), ownRepo])];
+  return { cwd, addDirs, skipGitRepoCheck: !(await isInGitRepo(cwd)) };
 }
 
 function tailLines(content: string, lineCount = 20): string {
@@ -92,10 +196,11 @@ export const POST: APIRoute = async ({ request }) => {
   const startedAt = new Date().toISOString();
   const jobPath = join(JOBS_DIR, `${jobId}.json`);
   const logPath = join(JOBS_DIR, `${jobId}.log`);
-  const { cwd, addDirs, skipSandbox = false } = briefWorkContext(briefPath);
+  const { cwd, addDirs, skipSandbox = false, skipGitRepoCheck = false, warning } = await briefWorkContext(briefPath);
 
   await mkdir(JOBS_DIR, { recursive: true });
   const logHandle = await open(logPath, 'a');
+  if (warning) await logHandle.write(`${warning}\n`);
 
   let child;
   try {
@@ -104,6 +209,9 @@ export const POST: APIRoute = async ({ request }) => {
       : ['exec', '-', '-C', cwd, '-s', 'workspace-write'];
     for (const dir of addDirs) {
       codexArgs.push('--add-dir', dir);
+    }
+    if (skipGitRepoCheck) {
+      codexArgs.push('--skip-git-repo-check');
     }
 
     child = spawn(CODEX_CLI, codexArgs, {
