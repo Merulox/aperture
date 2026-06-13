@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { open, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { appendFile, open, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -22,6 +22,14 @@ const KNOWN_ROOTS = [
   join(HOME, 'scripts'),
   WEBSITE,
 ].sort((a, b) => b.length - a.length);
+const RESTART_ALLOWLIST = new Set([
+  'sms-inbox',
+  'sms-webhook',
+  'missed-call-bot',
+  'calendly-poller',
+  'callback-reminder',
+  'pipeline-integrity-check',
+]);
 
 interface JobRecord {
   jobId: string;
@@ -31,9 +39,10 @@ interface JobRecord {
   startedAt: string;
   pid: number;
   logPath: string;
-  status: 'running' | 'done' | 'failed';
+  status: 'running' | 'done' | 'failed' | 'blocked';
   exitCode: number | null;
   finishedAt: string | null;
+  blockedReason?: string;
 }
 
 function normalizePath(input: string): string {
@@ -168,6 +177,68 @@ function tailLines(content: string, lineCount = 20): string {
   return lines.slice(Math.max(0, lines.length - lineCount)).join('\n');
 }
 
+function sectionBody(content: string, heading: string): string {
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return content.match(new RegExp(`^## ${escaped}\\s*$([\\s\\S]*?)(?=^## |(?![\\s\\S]))`, 'mi'))?.[1].trim() ?? '';
+}
+
+function contextForMatch(content: string, index: number, length: number): string {
+  const lineStart = content.lastIndexOf('\n', index) + 1;
+  const lineEnd = content.indexOf('\n', index + length);
+  const surrounding = content.slice(Math.max(0, lineStart - 160), lineEnd < 0 ? undefined : Math.min(content.length, lineEnd + 240));
+  return surrounding.trim().slice(0, 400);
+}
+
+export function blockedReasonFor(content: string): string | undefined {
+  const direct = /read-only file system|outside .* sandbox|permission denied|could not be written|relaunch with|is outside .* FILES IT OWNS|operation not permitted/i.exec(content);
+  if (direct?.index !== undefined) return contextForMatch(content, direct.index, direct[0].length);
+
+  const blockers = sectionBody(content, 'Blockers or open questions');
+  if (blockers && !/^(?:none|n\/a)\.?$/i.test(blockers)) return blockers.slice(0, 400);
+
+  const deviations = sectionBody(content, 'Deviations from the brief');
+  const skipped = /not executed|not modified|could not|was not run/i.exec(deviations);
+  if (skipped?.index !== undefined) return contextForMatch(deviations, skipped.index, skipped[0].length);
+  return undefined;
+}
+
+export function restartAfterServices(content: string): string[] {
+  const services = [...content.matchAll(/^\s*restart-after:\s*(.+)$/gmi)]
+    .flatMap((match) => match[1].split(','))
+    .map((service) => service.trim())
+    .filter(Boolean);
+  return [...new Set(services)];
+}
+
+async function appendJobLog(logPath: string, line: string): Promise<void> {
+  await appendFile(logPath, `${line}\n`, 'utf8').catch(() => {});
+}
+
+async function applyRestarts(briefPath: string, logPath: string): Promise<void> {
+  const content = await readFile(briefPath, 'utf8').catch(() => '');
+  for (const service of restartAfterServices(content)) {
+    if (!RESTART_ALLOWLIST.has(service)) {
+      await appendJobLog(logPath, `[aperture] restart ${service}: skipped (not allowlisted)`);
+      continue;
+    }
+    try {
+      await execFileAsync('systemctl', ['--user', 'restart', service]);
+      const { stdout } = await execFileAsync('systemctl', ['--user', 'is-active', service]);
+      await appendJobLog(logPath, `[aperture] restart ${service}: ${stdout.trim() || 'unknown'}`);
+    } catch (error) {
+      const result = error as Error & { stdout?: string; stderr?: string };
+      const reason = result.stderr?.trim() || result.stdout?.trim() || result.message;
+      await appendJobLog(logPath, `[aperture] restart ${service}: failed (${reason.slice(0, 300)})`);
+    }
+  }
+}
+
+async function classifyCompletion(lastMessagePath: string, logPath: string): Promise<string | undefined> {
+  const lastMessage = await readFile(lastMessagePath, 'utf8').catch(() => '');
+  const log = await readFile(logPath, 'utf8').catch(() => '');
+  return blockedReasonFor(lastMessage || tailLines(log, 120));
+}
+
 async function writeJobRecord(jobPath: string, job: JobRecord): Promise<void> {
   await writeFile(jobPath, `${JSON.stringify(job, null, 2)}\n`, 'utf8');
 }
@@ -196,6 +267,7 @@ export const POST: APIRoute = async ({ request }) => {
   const startedAt = new Date().toISOString();
   const jobPath = join(JOBS_DIR, `${jobId}.json`);
   const logPath = join(JOBS_DIR, `${jobId}.log`);
+  const lastMessagePath = `${jobPath}.last.md`;
   const { cwd, addDirs, skipSandbox = false, skipGitRepoCheck = false, warning } = await briefWorkContext(briefPath);
 
   await mkdir(JOBS_DIR, { recursive: true });
@@ -205,8 +277,9 @@ export const POST: APIRoute = async ({ request }) => {
   let child;
   try {
     const codexArgs = skipSandbox
-      ? ['exec', '-', '-C', cwd, '--dangerously-skip-sandbox']
+      ? ['exec', '-', '-C', cwd, '--dangerously-bypass-approvals-and-sandbox']
       : ['exec', '-', '-C', cwd, '-s', 'workspace-write'];
+    codexArgs.push('-o', lastMessagePath);
     for (const dir of addDirs) {
       codexArgs.push('--add-dir', dir);
     }
@@ -250,12 +323,16 @@ export const POST: APIRoute = async ({ request }) => {
   });
 
   child.once('exit', async (exitCode) => {
+    const blockedReason = exitCode === 0 ? await classifyCompletion(lastMessagePath, logPath) : undefined;
+    const status = exitCode !== 0 ? 'failed' : blockedReason ? 'blocked' : 'done';
     await updateJobRecord(jobPath, (current) => ({
       ...current,
-      status: exitCode === 0 ? 'done' : 'failed',
+      status,
       exitCode,
       finishedAt: new Date().toISOString(),
+      ...(blockedReason ? { blockedReason } : {}),
     }));
+    if (status === 'done') await applyRestarts(normalizePath(briefPath), logPath);
   });
 
   child.unref();

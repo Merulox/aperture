@@ -71,6 +71,19 @@ export default function Taskboard() {
     }
   };
 
+  const overlayJobs = (tasks: any[]) => tasks.map((task) => {
+    if (task.status !== 'briefed') return task;
+    const job = jobs.filter((item) => item.taskId === task.id).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
+    if (!job) return task;
+    if (job.status === 'running') return { ...task, status: 'in_progress', statusBadge: 'RUNNING', statusTone: 'blue', prompt: '' };
+    if (job.status === 'done') {
+      const finished = job.finishedAt ? `finished ${new Date(job.finishedAt).toLocaleString('en-CA')}` : 'finished';
+      return { ...task, status: 'awaiting_verify', statusBadge: 'AWAITING VERIFY', statusTone: 'orange', prompt: '', jobFinishedAt: job.finishedAt, riskGate: finished, notes: finished };
+    }
+    if (job.status === 'failed') return { ...task, statusBadge: 'FAILED — RELAUNCH', statusTone: 'red' };
+    return { ...task, statusBadge: 'BLOCKED — see reason', statusTone: 'red', blockedReason: job.blockedReason, riskGate: job.blockedReason, notes: job.blockedReason };
+  });
+
   return (
     <main>
       <header className="topbar">
@@ -82,8 +95,8 @@ export default function Taskboard() {
       </header>
       <div className="taskboard">
         <PermissionRequests items={data?.permissionRequests ?? []} onResponded={refreshData} />
-        <ExPanel tasks={data?.exTasks ?? []} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
-        <SyntraPanel tasks={data?.syntraTasks ?? []} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
+        <ExPanel tasks={overlayJobs(data?.exTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
+        <SyntraPanel tasks={overlayJobs(data?.syntraTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
         <CodexPanel jobs={jobs} />
         <BrainBus summary={data?.brainBus} />
       </div>

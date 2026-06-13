@@ -654,6 +654,27 @@ main {
   white-space: nowrap;
 }
 
+.blocked-reason {
+  grid-column: 1 / -1;
+  border-left: 3px solid var(--red);
+  padding: 7px 9px;
+  background: #150a0a;
+  color: var(--red);
+  font-size: 0.72rem;
+}
+
+.blocked-reason summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.blocked-reason p {
+  margin: 7px 0 0;
+  color: var(--text);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .job-log {
   grid-column: 1 / -1;
   margin: 0;

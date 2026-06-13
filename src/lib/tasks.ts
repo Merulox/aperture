@@ -9,6 +9,15 @@ const EX_BOARD = join(EX_BRIEFS_DIR, 'README.md');
 const SYNTRA_TASKS = join(HOME, 'syntra/.agent/TASKS.md');
 const SYNTRA_BRIEFS_DIR = join(HOME, 'syntra/docs/planning');
 const BRAIN_BUS_TASKS = join(HOME, 'obsidian/claude-bus/tasks');
+const APERTURE_JOBS = join(HOME, '.local/share/aperture/jobs');
+
+interface JobState {
+  taskId: string;
+  status: 'running' | 'done' | 'failed' | 'blocked';
+  startedAt: string;
+  finishedAt: string | null;
+  blockedReason?: string;
+}
 
 export interface PermissionRequest {
   id: string;
@@ -119,6 +128,41 @@ async function listFiles(path: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+async function latestJobs(): Promise<Map<string, JobState>> {
+  const jobs = await Promise.all((await listFiles(APERTURE_JOBS))
+    .filter((file) => file.endsWith('.json'))
+    .map(async (file): Promise<JobState | null> => {
+      try {
+        return JSON.parse(await readFile(join(APERTURE_JOBS, file), 'utf8')) as JobState;
+      } catch {
+        return null;
+      }
+    }));
+  const latest = new Map<string, JobState>();
+  for (const job of jobs.filter((item): item is JobState => item !== null)) {
+    if (!latest.has(job.taskId) || latest.get(job.taskId)!.startedAt < job.startedAt) latest.set(job.taskId, job);
+  }
+  return latest;
+}
+
+function overlayJobState<T extends { id: string; status: string; statusBadge: string; statusTone: string; uninitiated: boolean; prompt: string }>(
+  tasks: T[],
+  jobs: Map<string, JobState>,
+): T[] {
+  return tasks.map((task) => {
+    if (task.status !== 'briefed') return task;
+    const job = jobs.get(task.id);
+    if (!job) return task;
+    if (job.status === 'running') return { ...task, status: 'in_progress', statusBadge: 'RUNNING', statusTone: 'blue', uninitiated: false, prompt: '' };
+    if (job.status === 'done') {
+      const note = `finished ${job.finishedAt || ''}`.trim();
+      return { ...task, status: 'awaiting_verify', statusBadge: 'AWAITING VERIFY', statusTone: 'orange', uninitiated: false, prompt: '', jobFinishedAt: job.finishedAt, riskGate: note, notes: note };
+    }
+    if (job.status === 'failed') return { ...task, statusBadge: 'FAILED — RELAUNCH', statusTone: 'red', uninitiated: true };
+    return { ...task, statusBadge: 'BLOCKED — see reason', statusTone: 'red', uninitiated: true, blockedReason: job.blockedReason, riskGate: job.blockedReason, notes: job.blockedReason };
+  });
 }
 
 function classifyStatus(status: string): {
@@ -286,11 +330,17 @@ export async function getBrainBusSummary(): Promise<BrainBusSummary> {
 }
 
 export async function getTaskboardData(): Promise<TaskboardData> {
-  const [permissionRequests, exTasks, syntraTasks, brainBus] = await Promise.all([
+  const [permissionRequests, exTasks, syntraTasks, brainBus, jobs] = await Promise.all([
     getPermissionRequests(),
     getExTasks(),
     getSyntraTasks(),
     getBrainBusSummary(),
+    latestJobs(),
   ]);
-  return { permissionRequests, exTasks, syntraTasks, brainBus };
+  return {
+    permissionRequests,
+    exTasks: overlayJobState(exTasks, jobs),
+    syntraTasks: overlayJobState(syntraTasks, jobs),
+    brainBus,
+  };
 }

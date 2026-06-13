@@ -7,8 +7,9 @@ export interface Job {
   startedAt: string;
   finishedAt: string | null;
   pid: number;
-  status: 'running' | 'done' | 'failed';
+  status: 'running' | 'done' | 'failed' | 'blocked';
   logTail: string;
+  blockedReason?: string;
 }
 
 function elapsed(startedAt: string, finishedAt: string | null): string {
@@ -41,6 +42,12 @@ export function JobRow({ job }: { job: Job }) {
       <span className={`badge badge-${tone}`}>{job.status.toUpperCase()}</span>
       <span className="task-title">{job.taskTitle}</span>
       <span className="elapsed">{elapsed(job.startedAt, job.finishedAt)}</span>
+      {job.status === 'blocked' && job.blockedReason && (
+        <details className="blocked-reason">
+          <summary>Blocked reason</summary>
+          <p>{job.blockedReason}</p>
+        </details>
+      )}
       <pre className="job-log" ref={logRef}>{log || '(no output yet)'}</pre>
     </div>
   );
