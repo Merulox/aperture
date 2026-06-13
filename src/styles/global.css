@@ -178,6 +178,84 @@ main {
   margin: 0;
 }
 
+.now-title {
+  color: var(--blue);
+  text-decoration: none;
+}
+
+.active-rule {
+  margin-bottom: 14px;
+  border-left: 3px solid var(--blue);
+  padding: 9px 11px;
+  background: #101820;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.now-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.now-group h2 {
+  margin: 0 0 7px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.now-list {
+  display: grid;
+  gap: 5px;
+}
+
+.now-action {
+  border-top: 1px solid #222;
+  padding: 7px 0;
+  font-size: 0.76rem;
+}
+
+.now-action summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 7px;
+  cursor: pointer;
+  line-height: 1.45;
+  list-style: none;
+}
+
+.now-action summary::-webkit-details-marker {
+  display: none;
+}
+
+.now-action a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.now-action a:hover,
+.now-action a:focus-visible {
+  color: var(--blue);
+}
+
+.now-action p {
+  margin: 7px 0 0 34px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.now-source {
+  color: #444;
+}
+
+.now-panel-compact .now-list {
+  max-height: 245px;
+  overflow-y: auto;
+}
+
 .decisions {
   display: grid;
   gap: 8px;
@@ -639,6 +717,10 @@ main {
   }
 
   .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .now-groups {
     grid-template-columns: 1fr;
   }
 

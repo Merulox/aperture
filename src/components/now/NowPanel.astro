@@ -1,0 +1,84 @@
+---
+import type { ActionItem, NextActions } from '../../lib/actions';
+
+interface Props {
+  initial: NextActions;
+  compact?: boolean;
+}
+
+const { initial, compact = false } = Astro.props;
+const groups: Array<{ owner: ActionItem['owner']; label: string }> = [
+  { owner: 'merulox', label: 'YOU' },
+  { owner: 'executor', label: 'EXECUTORS' },
+  { owner: 'architect', label: 'ARCHITECT' },
+];
+const counts = Object.fromEntries(groups.map(({ owner }) => [owner, initial.actions.filter((item) => item.owner === owner).length]));
+---
+<section class={`panel panel-wide now-panel ${compact ? 'now-panel-compact' : ''}`} aria-labelledby="now-heading" data-now-panel>
+  <div class="section-head">
+    <a class="label now-title" id="now-heading" href="/now">now</a>
+    <span class="badge badge-muted" data-now-counts>YOU: {counts.merulox} · EXEC: {counts.executor} · ARCH: {counts.architect}</span>
+  </div>
+  <div class="active-rule" data-active-rule>{initial.activeRule}</div>
+  <div class="now-groups" data-now-groups>
+    {groups.map(({ owner, label }) => (
+      <section class="now-group" data-owner={owner}>
+        <h2>{label}</h2>
+        <div class="now-list">
+          {initial.actions.filter((item) => item.owner === owner).map((item) => (
+            <details class={`now-action urgency-${item.urgency}`}>
+              <summary>
+                <span class={`badge badge-${item.urgency === 'now' ? 'red' : item.urgency === 'today' ? 'yellow' : 'muted'}`}>{item.urgency}</span>
+                {item.link ? <a href={item.link}>{item.title}</a> : <span>{item.title}</span>}
+              </summary>
+              <p>{item.why} <span class="now-source">[{item.source}]</span></p>
+            </details>
+          ))}
+          {initial.actions.every((item) => item.owner !== owner) && <p class="state-entry">— none —</p>}
+        </div>
+      </section>
+    ))}
+  </div>
+</section>
+
+<script>
+  const escapeHtml = (value: unknown) => String(value).replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+  }[character] ?? character));
+  const labels = { merulox: 'YOU', executor: 'EXECUTORS', architect: 'ARCHITECT' };
+  const tones = { now: 'red', today: 'yellow', week: 'muted' };
+
+  function render(panel: HTMLElement, data: any) {
+    const counts = { merulox: 0, executor: 0, architect: 0 };
+    for (const item of data.actions) counts[item.owner as keyof typeof counts]++;
+    panel.querySelector<HTMLElement>('[data-active-rule]')!.textContent = data.activeRule;
+    panel.querySelector<HTMLElement>('[data-now-counts]')!.textContent =
+      `YOU: ${counts.merulox} · EXEC: ${counts.executor} · ARCH: ${counts.architect}`;
+    panel.querySelector<HTMLElement>('[data-now-groups]')!.innerHTML =
+      Object.entries(labels).map(([owner, label]) => {
+        const items = data.actions.filter((item: any) => item.owner === owner);
+        const content = items.length ? items.map((item: any) => `
+          <details class="now-action urgency-${escapeHtml(item.urgency)}">
+            <summary>
+              <span class="badge badge-${tones[item.urgency as keyof typeof tones]}">${escapeHtml(item.urgency)}</span>
+              ${item.link ? `<a href="${escapeHtml(item.link)}">${escapeHtml(item.title)}</a>` : `<span>${escapeHtml(item.title)}</span>`}
+            </summary>
+            <p>${escapeHtml(item.why)} <span class="now-source">[${escapeHtml(item.source)}]</span></p>
+          </details>`).join('') : '<p class="state-entry">— none —</p>';
+        return `<section class="now-group" data-owner="${owner}"><h2>${label}</h2><div class="now-list">${content}</div></section>`;
+      }).join('');
+  }
+
+  async function refreshNow() {
+    if (document.hidden) return;
+    const response = await fetch('/api/next-actions', { cache: 'no-store' });
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    document.querySelectorAll<HTMLElement>('[data-now-panel]').forEach((panel) => render(panel, data));
+  }
+
+  window.setInterval(() => void refreshNow().catch(console.error), 60_000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) void refreshNow().catch(console.error);
+  });
+</script>

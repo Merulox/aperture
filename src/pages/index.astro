@@ -1,8 +1,13 @@
 ---
 import '../styles/global.css';
 import { getDashboardData } from '../lib/data';
+import { getNextActions } from '../lib/actions';
+import NowPanel from '../components/now/NowPanel.astro';
 
-const { health, genesis, vitals, mode, monitor, backup } = await getDashboardData();
+const [{ health, genesis, vitals, mode, monitor, backup }, actions] = await Promise.all([
+  getDashboardData(),
+  getNextActions(),
+]);
 
 const statusTone = toneForStatus(health.status);
 const vitalsAgeDays = ageInDays(vitals.ts);
@@ -67,6 +72,8 @@ function ageInDays(timestamp: string): number {
     </header>
 
     <div class="grid">
+      <NowPanel initial={actions} compact />
+
       <section class="panel" aria-labelledby="mode-heading">
         <div class="label" id="mode-heading">mode</div>
         <h1 class="mode-name">{mode.current}</h1>

@@ -1,0 +1,28 @@
+---
+import '../styles/global.css';
+import NowPanel from '../components/now/NowPanel.astro';
+import { getNextActions } from '../lib/actions';
+
+const actions = await getNextActions();
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NOW · Aperture</title>
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <div class="brand">aperture / now</div>
+      <div class="meta">
+        <span>updated {actions.generatedAt}</span>
+        <a href="/" class="nav-link">dashboard</a>
+        <a href="/tasks" class="nav-link">tasks</a>
+      </div>
+    </header>
+    <NowPanel initial={actions} />
+  </main>
+</body>
+</html>
