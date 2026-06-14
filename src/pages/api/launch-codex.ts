@@ -79,13 +79,13 @@ function defaultWorkRoot(resolvedBrief: string): string {
   return briefRepo(resolvedBrief);
 }
 
-function ownedPathTokens(content: string): string[] {
+export function ownedPathTokens(content: string): string[] {
   const lines = content.split(/\r?\n/);
   const start = lines.findIndex((line) => line.trim() === '## FILES IT OWNS');
   if (start < 0) return [];
   const end = lines.findIndex((line, index) => index > start && line.startsWith('## '));
   const section = lines.slice(start + 1, end < 0 ? undefined : end);
-  const pathLike = /^(?:~\/|\/|\.{1,2}\/|src\/|api\/|package\.json$|astro\.config\.mjs$|\.gitignore$)/;
+  const pathLike = /^(?:~\/|\/|\.{1,2}\/|[\w.@-]+\/\S+|.+\.(?:js|jsx|ts|tsx|mjs|cjs|json|md|mdx|css|scss|astro|py|yaml|yml|toml|sh|sql|txt|html|env)$)/;
 
   return section
     .flatMap((line) => {
