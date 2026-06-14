@@ -260,7 +260,10 @@ export async function getExTasks(): Promise<ExTask[]> {
   const statusMap = new Map(tasks.map((task) => [task.id, task.status]));
   const resolved = tasks.map((task) => ({
     ...task,
-    blocked: task.dependsOn ? statusMap.get(task.dependsOn) !== 'done' : false,
+    blocked: task.dependsOn
+      ? task.dependsOn.split(',').map((dep) => dep.trim()).filter(Boolean)
+          .some((dep) => statusMap.get(dep) !== 'done')
+      : false,
   }));
   return sortTasks(resolved);
 }
