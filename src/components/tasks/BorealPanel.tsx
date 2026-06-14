@@ -75,8 +75,9 @@ function BorealTaskRow(props: Props & { task: any; active?: boolean }) {
 }
 
 export function BorealPanel(props: Props) {
-  const activeTasks = props.tasks.filter((task) => task.status !== 'done' && task.status !== 'superseded');
-  const doneTasks = props.tasks.filter((task) => task.status === 'done' || task.status === 'superseded');
+  const CLOSED = ['done', 'superseded', 'cancelled', 'split'];
+  const activeTasks = props.tasks.filter((task) => !CLOSED.includes(task.status));
+  const doneTasks = props.tasks.filter((task) => CLOSED.includes(task.status));
 
   return (
     <section className="panel" aria-labelledby="boreal-heading">
@@ -89,7 +90,7 @@ export function BorealPanel(props: Props) {
           ? activeTasks.map((task) => <BorealTaskRow key={task.id} {...props} task={task} active />)
           : <p className="state-entry">— no active Boréal tasks —</p>}
         <details className="done-group ex-done-group">
-          <summary>[{doneTasks.length} done — click to expand]</summary>
+          <summary>[{doneTasks.length} closed — click to expand]</summary>
           <div className="ex-grid">
             {doneTasks.map((task) => <BorealTaskRow key={task.id} {...props} task={task} />)}
           </div>
