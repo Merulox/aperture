@@ -77,6 +77,7 @@ export interface BrainBusSummary {
 
 export interface TaskboardData {
   permissionRequests: PermissionRequest[];
+  borealTasks: ExTask[];
   exTasks: ExTask[];
   syntraTasks: SyntraTask[];
   brainBus: BrainBusSummary;
@@ -333,15 +334,18 @@ export async function getBrainBusSummary(): Promise<BrainBusSummary> {
 }
 
 export async function getTaskboardData(): Promise<TaskboardData> {
-  const [permissionRequests, exTasks, syntraTasks, brainBus, jobs] = await Promise.all([
+  const [permissionRequests, ecosystemTasks, syntraTasks, brainBus, jobs] = await Promise.all([
     getPermissionRequests(),
     getExTasks(),
     getSyntraTasks(),
     getBrainBusSummary(),
     latestJobs(),
   ]);
+  const borealTasks = ecosystemTasks.filter((task) => /^BX-/.test(task.id));
+  const exTasks = ecosystemTasks.filter((task) => !/^BX-/.test(task.id));
   return {
     permissionRequests,
+    borealTasks: overlayJobState(borealTasks, jobs),
     exTasks: overlayJobState(exTasks, jobs),
     syntraTasks: overlayJobState(syntraTasks, jobs),
     brainBus,

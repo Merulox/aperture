@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CodexPanel } from './codex/CodexPanel';
 import type { Job } from './codex/JobRow';
+import { BorealPanel } from './tasks/BorealPanel';
 import { ExPanel } from './tasks/ExPanel';
 import { SyntraPanel } from './tasks/SyntraPanel';
 import { PermissionRequests } from './tasks/PermissionRequests';
@@ -97,6 +98,7 @@ export default function Taskboard() {
       <div className="taskboard">
         <PermissionRequests items={data?.permissionRequests ?? []} onResponded={refreshData} />
         <EscalationPanel />
+        <BorealPanel tasks={overlayJobs(data?.borealTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
         <ExPanel tasks={overlayJobs(data?.exTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
         <SyntraPanel tasks={overlayJobs(data?.syntraTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
         <CodexPanel jobs={jobs} />
