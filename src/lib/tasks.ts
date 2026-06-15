@@ -4,7 +4,7 @@ import { readdir, readFile } from 'node:fs/promises';
 
 const HOME = homedir();
 const PERMISSION_DIR = join(HOME, 'obsidian/claude-bus/permission-requests');
-const EX_BRIEFS_DIR = join(HOME, 'agent-infra/ecosystem-review/briefs');
+const EX_BRIEFS_DIR = join(HOME, 'kernel/ecosystem-review/briefs');
 const EX_BOARD = join(EX_BRIEFS_DIR, 'README.md');
 const SYNTRA_TASKS = join(HOME, 'syntra/.agent/TASKS.md');
 const SYNTRA_BRIEFS_DIR = join(HOME, 'syntra/docs/planning');
@@ -191,9 +191,9 @@ function sortTasks<T extends { status: string; uninitiated: boolean; id: string 
 function promptForBrief(briefPath: string): string {
   const displayPath = briefPath.startsWith(HOME) ? `~${briefPath.slice(HOME.length)}` : briefPath;
   return [
-    'Read ~/agent-infra/agents/executor.md.',
+    'Read ~/kernel/agents/executor.md.',
     `Then read ${displayPath} and implement it.`,
-    'Report back using ~/agent-infra/templates/implementation-report.md. Paste raw command output — do not summarize.',
+    'Report back using ~/kernel/templates/implementation-report.md. Paste raw command output — do not summarize.',
   ].join('\n');
 }
 
