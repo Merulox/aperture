@@ -40,6 +40,11 @@ function Prompt({ task, jobs, launchingTaskId, onLaunch }: Props & { task: any }
               <button type="button" className="launch-codex btn-disabled" disabled>Send to Codex</button>
               <span className="dep-label">requires {task.dependsOn}</span>
             </div>
+          ) : task.executor === 'opencode' ? (
+            <div className="dep-gate">
+              <button type="button" className="launch-codex btn-disabled" disabled title="Run manually in terminal">Send to Codex</button>
+              <span className="dep-label">run manually: cd &lt;workroot&gt; &amp;&amp; opencode</span>
+            </div>
           ) : (
             <button
               type="button"
@@ -66,6 +71,9 @@ function ExTaskRow(props: Props & { task: any; active?: boolean }) {
     <div className={`ex-task ${active && task.uninitiated ? 'task-uninitiated' : ''}`}>
       <span className="task-id">{task.id}</span>
       <span className={`badge badge-${tone}`}>{badge}</span>
+      {task.executor && task.executor !== 'codex' && (
+        <span className="badge badge-muted" title={`Executor: ${task.executor}`}>{task.executor.toUpperCase()}</span>
+      )}
       <span className="task-title">{task.title}</span>
       <span className="task-note">{task.riskGate || '—'}</span>
       {active && <Prompt {...props} />}

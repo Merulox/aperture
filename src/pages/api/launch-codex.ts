@@ -385,6 +385,13 @@ export const POST: APIRoute = async ({ request }) => {
     return new Response('taskId, taskTitle, briefPath, and a non-empty prompt are required.', { status: 400 });
   }
 
+  const briefContent = await readFile(normalizePath(briefPath), 'utf8').catch(() => '');
+  const executorMatch = briefContent.match(/^## EXECUTOR\s*\n\s*(codex|opencode|either)\b/m);
+  const executor = executorMatch ? executorMatch[1] : 'codex';
+  if (executor === 'opencode') {
+    return new Response(JSON.stringify({ error: `${taskId} declares EXECUTOR: opencode — run manually: cd <workroot> && opencode` }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+  }
+
   const jobId = crypto.randomUUID();
   const startedAt = new Date().toISOString();
   const jobPath = join(JOBS_DIR, `${jobId}.json`);

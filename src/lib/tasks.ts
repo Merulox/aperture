@@ -44,6 +44,7 @@ export interface ExTask {
   riskGate: string;
   dependsOn: string;
   blocked: boolean;
+  executor: 'codex' | 'opencode' | 'either';
 }
 
 export interface SyntraTask {
@@ -188,6 +189,12 @@ function sortTasks<T extends { status: string; uninitiated: boolean; id: string 
   );
 }
 
+function parseExecutor(content: string): 'codex' | 'opencode' | 'either' {
+  const match = content.match(/^## EXECUTOR\s*\n\s*(codex|opencode|either)\b/m);
+  if (!match) return 'codex';
+  return match[1] as 'codex' | 'opencode' | 'either';
+}
+
 function promptForBrief(briefPath: string): string {
   const displayPath = briefPath.startsWith(HOME) ? `~${briefPath.slice(HOME.length)}` : briefPath;
   return [
@@ -256,6 +263,7 @@ export async function getExTasks(): Promise<ExTask[]> {
         riskGate: cells[5] || '',
         dependsOn,
         blocked: false,
+        executor: parseExecutor(preview.briefContent),
       };
     }));
   const statusMap = new Map(tasks.map((task) => [task.id, task.status]));

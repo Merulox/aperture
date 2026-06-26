@@ -1,8 +1,22 @@
 import type { MiddlewareHandler } from 'astro';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
-const USER = import.meta.env.BASIC_AUTH_USER ?? 'm';
-const PASS = import.meta.env.BASIC_AUTH_PASS ?? 'st';
-const EXPECTED = 'Basic ' + btoa(`${USER}:${PASS}`);
+function loadExpectedAuth(): string {
+  const authFile =
+    process.env.WEB_AUTH_FILE ??
+    import.meta.env.WEB_AUTH_FILE ??
+    join(homedir(), '.secrets/web-auth.txt');
+  const raw = readFileSync(authFile, 'utf8').trim();
+  const separator = raw.indexOf(':');
+  if (separator <= 0 || separator === raw.length - 1) {
+    throw new Error(`Invalid Basic auth credential file: ${authFile}`);
+  }
+  return 'Basic ' + btoa(raw);
+}
+
+const EXPECTED = loadExpectedAuth();
 
 export const onRequest: MiddlewareHandler = async (ctx, next) => {
   const auth = ctx.request.headers.get('authorization');

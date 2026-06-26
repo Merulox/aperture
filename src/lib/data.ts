@@ -1,4 +1,5 @@
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
 const HEALTH_PATH = '/home/merulox/obsidian/knowledge/projects/genesis/health.json';
@@ -10,6 +11,31 @@ const MODE_PATH = '/home/merulox/projects/realm/mode.json';
 // LIVE telemetry — the crown jewel (written continuously by realm monitor hooks)
 const MONITOR_HEALTH_PATH = '/home/merulox/projects/realm/monitor/service-health.jsonl';
 const MONITOR_AUDIT_PATH = '/home/merulox/projects/realm/monitor/genesis-audit.jsonl';
+const BACKUP_REPOSITORY = 'Cloudflare R2 / navi-backup';
+const BACKUP_REPOSITORY_URL =
+  's3:https://85fd3bf83c5ee32ce2e3353fa0a58409.r2.cloudflarestorage.com/navi-backup';
+const BACKUP_ROOTS = ['/etc/nixos', '/home/merulox'];
+const BACKUP_EXCLUDES = [
+  '/home/merulox/games',
+  '/home/merulox/torrenting',
+  '/home/merulox/Downloads',
+  '/home/merulox/ISOs',
+  '/home/merulox/plex',
+  '/home/merulox/media',
+  '/home/merulox/videos',
+  '/home/merulox/.local/share/Steam',
+  '/home/merulox/.local/share/PrismLauncher',
+  '/home/merulox/.local/share/bottles',
+  '/home/merulox/.local/share/lutris',
+  '/home/merulox/.local/share/flatpak',
+  '/home/merulox/.local/share/osu',
+  '/home/merulox/.local/share/Trash',
+  '/home/merulox/.local/share/containers',
+  '/home/merulox/.local/share/baloo',
+  '*/node_modules',
+  '*/__pycache__',
+  '*/.venv',
+];
 
 export type HealthStatus =
   | 'ACTIVE'
@@ -104,11 +130,76 @@ export type MonitorData = {
   pendingItems: BugLedgerItem[];
 };
 
+export type SystemProcess = {
+  pid: number;
+  ppid: number;
+  user: string;
+  stat: string;
+  cpu: number;
+  memPercent: number;
+  rssBytes: number;
+  swapBytes: number;
+  elapsed: string;
+  command: string;
+  args: string;
+  risk: 'critical' | 'warning' | 'normal';
+  reason: string;
+  manageable: boolean;
+};
+
+export type SwapGroup = {
+  command: string;
+  count: number;
+  swapBytes: number;
+  rssBytes: number;
+};
+
+export type SystemResources = {
+  ts: string;
+  memory: {
+    totalBytes: number;
+    availableBytes: number;
+    usedBytes: number;
+    pressurePercent: number;
+  };
+  swap: {
+    totalBytes: number;
+    freeBytes: number;
+    usedBytes: number;
+    pressurePercent: number;
+    top: SystemProcess[];
+    byCommand: SwapGroup[];
+  };
+  pressure: {
+    cpuSome: number | null;
+    memorySome: number | null;
+    memoryFull: number | null;
+    ioSome: number | null;
+    ioFull: number | null;
+  };
+  top: SystemProcess[];
+  flagged: SystemProcess[];
+};
+
 export type BackupStatus = {
   lastRun: string;
   nextRun: string;
   ok: boolean;
   exitCode: number | null;
+  repository: string;
+  repositoryUrl: string;
+  roots: string[];
+  excludes: string[];
+  recentSnapshots: BackupSnapshot[];
+};
+
+export type BackupSnapshot = {
+  id: string;
+  started: string;
+  ended: string;
+  paths: string[];
+  files: number | null;
+  bytes: number | null;
 };
 
 export type DashboardData = {
@@ -121,15 +212,17 @@ export type DashboardData = {
   };
   monitor: MonitorData;
   backup: BackupStatus;
+  system: SystemResources;
 };
 
 export async function getDashboardData(): Promise<DashboardData> {
-  const [health, liveState, vitals, mode, monitor] = await Promise.all([
+  const [health, liveState, vitals, mode, monitor, system] = await Promise.all([
     readJson<HealthData>(HEALTH_PATH),
     readLiveState(),
     readJson<VitalsData>(VITALS_PATH),
     readJson<ModeData>(MODE_PATH),
     readMonitorData(),
+    readSystemResources(),
   ]);
 
   return {
@@ -142,7 +235,259 @@ export async function getDashboardData(): Promise<DashboardData> {
     },
     monitor,
     backup: readBackupStatus(),
+    system,
   };
+}
+
+export function readProcessSnapshot(): SystemProcess[] {
+  try {
+    const swapByPid = readSwapByPid();
+    const out = execFileSync(
+      'ps',
+      ['-eo', 'pid,ppid,user,stat,%cpu,%mem,rss,etime,comm,args', '--sort=-rss'],
+      { encoding: 'utf8', timeout: 3000, maxBuffer: 2 * 1024 * 1024 },
+    );
+
+    return out
+      .split('\n')
+      .slice(1)
+      .map((row) => parseProcessRow(row, swapByPid))
+      .filter((process): process is SystemProcess => process !== undefined);
+  } catch {
+    return [];
+  }
+}
+
+export function findManageableProcess(pid: number): SystemProcess | undefined {
+  return readProcessSnapshot().find((process) => process.pid === pid && process.manageable);
+}
+
+export async function readSystemResources(): Promise<SystemResources> {
+  const memory = await readMeminfo();
+  const pressure = readPressure();
+  const processes = readProcessSnapshot();
+  const swapTop = processes
+    .filter((process) => process.swapBytes > 0)
+    .sort((a, b) => b.swapBytes - a.swapBytes)
+    .slice(0, 16);
+  const swapByCommand = groupSwapByCommand(processes).slice(0, 12);
+  const flagged = processes
+    .filter((process) => process.risk !== 'normal')
+    .sort(
+      (a, b) =>
+        riskRank(a.risk) - riskRank(b.risk) ||
+        b.swapBytes - a.swapBytes ||
+        b.rssBytes - a.rssBytes,
+    )
+    .slice(0, 12);
+
+  memory.swap.top = swapTop;
+  memory.swap.byCommand = swapByCommand;
+
+  return {
+    ts: new Date().toLocaleString('en-CA', {
+      timeZone: 'America/Toronto',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }),
+    memory,
+    swap: memory.swap,
+    pressure,
+    top: processes.slice(0, 12),
+    flagged,
+  };
+}
+
+function parseProcessRow(row: string, swapByPid: Map<number, number>): SystemProcess | undefined {
+  const match = row.trim().match(
+    /^(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(\S+)\s+(\S+)\s*(.*)$/,
+  );
+  if (!match) return undefined;
+
+  const [, pidText, ppidText, user, stat, cpuText, memText, rssText, elapsed, command, args] = match;
+  const pid = Number(pidText);
+  const ppid = Number(ppidText);
+  const cpu = Number(cpuText);
+  const memPercent = Number(memText);
+  const rssBytes = Number(rssText) * 1024;
+  const swapBytes = swapByPid.get(pid) ?? 0;
+  const fullArgs = args || command;
+  const lower = `${command} ${fullArgs}`.toLowerCase();
+  const isTranscription = lower.includes('whisper') || lower.includes('brain-ingest');
+  const isHeavyMemory = rssBytes >= 1024 * 1024 * 1024 || memPercent >= 5;
+  const isHeavySwap = swapBytes >= 512 * 1024 * 1024;
+  const isHeavyCpu = cpu >= 100;
+  const isLongLivedBusy = cpu >= 25 && elapsed.includes('-');
+  const risk =
+    isTranscription || isHeavyMemory || isHeavySwap || isHeavyCpu
+      ? 'critical'
+      : isLongLivedBusy || cpu >= 15 || rssBytes >= 512 * 1024 * 1024 || swapBytes > 0
+        ? 'warning'
+        : 'normal';
+  const reason = isTranscription
+    ? 'transcription job'
+    : isHeavySwap
+      ? 'high swap'
+    : isHeavyMemory
+      ? 'high memory'
+      : isHeavyCpu
+        ? 'multi-core CPU'
+        : isLongLivedBusy
+          ? 'long-lived CPU'
+          : cpu >= 15
+            ? 'CPU'
+            : rssBytes >= 512 * 1024 * 1024
+              ? 'memory'
+              : swapBytes > 0
+                ? 'swap'
+              : 'normal';
+
+  return {
+    pid,
+    ppid,
+    user,
+    stat,
+    cpu,
+    memPercent,
+    rssBytes,
+    swapBytes,
+    elapsed,
+    command,
+    args: fullArgs,
+    risk,
+    reason,
+    manageable: user === 'merulox' && pid !== process.pid,
+  };
+}
+
+async function readMeminfo() {
+  const fallback = {
+    totalBytes: 0,
+    availableBytes: 0,
+    usedBytes: 0,
+    pressurePercent: 0,
+    swap: {
+      totalBytes: 0,
+      freeBytes: 0,
+      usedBytes: 0,
+      pressurePercent: 0,
+      top: [],
+      byCommand: [],
+    },
+  };
+
+  try {
+    const contents = await readFile('/proc/meminfo', 'utf8');
+    const values = Object.fromEntries(
+      contents.split('\n').flatMap((line) => {
+        const match = line.match(/^([A-Za-z_()]+):\s+(\d+)\s+kB/);
+        return match ? [[match[1], Number(match[2]) * 1024]] : [];
+      }),
+    ) as Record<string, number>;
+
+    const totalBytes = values.MemTotal ?? 0;
+    const availableBytes = values.MemAvailable ?? values.MemFree ?? 0;
+    const usedBytes = Math.max(0, totalBytes - availableBytes);
+    const swapTotal = values.SwapTotal ?? 0;
+    const swapFree = values.SwapFree ?? 0;
+    const swapUsed = Math.max(0, swapTotal - swapFree);
+
+    return {
+      totalBytes,
+      availableBytes,
+      usedBytes,
+      pressurePercent: percent(usedBytes, totalBytes),
+      swap: {
+        totalBytes: swapTotal,
+        freeBytes: swapFree,
+        usedBytes: swapUsed,
+        pressurePercent: percent(swapUsed, swapTotal),
+        top: [],
+        byCommand: [],
+      },
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function readSwapByPid(): Map<number, number> {
+  const result = new Map<number, number>();
+
+  try {
+    for (const entry of readdirSync('/proc', { withFileTypes: true })) {
+      if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) continue;
+      try {
+        const status = readFileSync(`/proc/${entry.name}/status`, 'utf8');
+        const match = status.match(/^VmSwap:\s+(\d+)\s+kB/m);
+        const swapKb = match ? Number(match[1]) : 0;
+        if (swapKb > 0) result.set(Number(entry.name), swapKb * 1024);
+      } catch {
+        // Processes can exit while the snapshot is being assembled.
+      }
+    }
+  } catch {
+    return result;
+  }
+
+  return result;
+}
+
+function groupSwapByCommand(processes: SystemProcess[]): SwapGroup[] {
+  const groups = new Map<string, SwapGroup>();
+
+  for (const process of processes) {
+    if (process.swapBytes <= 0) continue;
+    const current =
+      groups.get(process.command) ??
+      ({
+        command: process.command,
+        count: 0,
+        swapBytes: 0,
+        rssBytes: 0,
+      } satisfies SwapGroup);
+    current.count += 1;
+    current.swapBytes += process.swapBytes;
+    current.rssBytes += process.rssBytes;
+    groups.set(process.command, current);
+  }
+
+  return [...groups.values()].sort((a, b) => b.swapBytes - a.swapBytes);
+}
+
+function readPressure(): SystemResources['pressure'] {
+  return {
+    cpuSome: readPressureValue('/proc/pressure/cpu', 'some'),
+    memorySome: readPressureValue('/proc/pressure/memory', 'some'),
+    memoryFull: readPressureValue('/proc/pressure/memory', 'full'),
+    ioSome: readPressureValue('/proc/pressure/io', 'some'),
+    ioFull: readPressureValue('/proc/pressure/io', 'full'),
+  };
+}
+
+function readPressureValue(path: string, kind: 'some' | 'full'): number | null {
+  try {
+    const line = execFileSync('grep', [kind, path], { encoding: 'utf8', timeout: 1000 });
+    const match = line.match(/avg60=([\d.]+)/);
+    return match ? Number(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+function percent(value: number, total: number): number {
+  if (!total) return 0;
+  return Math.round((value / total) * 1000) / 10;
+}
+
+function riskRank(risk: SystemProcess['risk']): number {
+  if (risk === 'critical') return 0;
+  if (risk === 'warning') return 1;
+  return 2;
 }
 
 function readBackupStatus(): BackupStatus {
@@ -151,6 +496,11 @@ function readBackupStatus(): BackupStatus {
     nextRun: 'unknown',
     ok: true,
     exitCode: null,
+    repository: BACKUP_REPOSITORY,
+    repositoryUrl: BACKUP_REPOSITORY_URL,
+    roots: BACKUP_ROOTS,
+    excludes: BACKUP_EXCLUDES,
+    recentSnapshots: [],
   };
 
   try {
@@ -170,31 +520,102 @@ function readBackupStatus(): BackupStatus {
         .map((line) => line.split('=', 2) as [string, string]),
     );
 
-    const parseUsec = (usec: string): string => {
-      const n = Number(usec);
-      if (!n) return 'never';
-      return new Date(n / 1000).toLocaleString('en-CA', {
-        timeZone: 'America/Toronto',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      });
-    };
-
     const exitCode = props.ExecMainStatus ? Number(props.ExecMainStatus) : null;
 
     return {
-      lastRun: parseUsec(props.LastTriggerUSec ?? '0'),
-      nextRun: parseUsec(props.NextElapseUSecRealtime ?? '0'),
+      lastRun: parseSystemdTime(props.LastTriggerUSec ?? '0'),
+      nextRun: parseSystemdTime(props.NextElapseUSecRealtime ?? '0'),
       ok: exitCode === null || exitCode === 0,
       exitCode,
+      repository: BACKUP_REPOSITORY,
+      repositoryUrl: BACKUP_REPOSITORY_URL,
+      roots: BACKUP_ROOTS,
+      excludes: BACKUP_EXCLUDES,
+      recentSnapshots: readRecentBackupSnapshots(),
     };
   } catch {
-    return fallback;
+    return {
+      ...fallback,
+      recentSnapshots: readRecentBackupSnapshots(),
+    };
   }
+}
+
+function readRecentBackupSnapshots(): BackupSnapshot[] {
+  try {
+    const out = execFileSync(
+      'bash',
+      [
+        '-lc',
+        [
+          'source ~/.secrets/r2-credentials',
+          `export RESTIC_REPOSITORY=${BACKUP_REPOSITORY_URL}`,
+          'export RESTIC_PASSWORD_FILE=/home/merulox/.secrets/restic-password',
+          'restic snapshots --json',
+        ].join('\n'),
+      ],
+      { encoding: 'utf8', timeout: 12_000, maxBuffer: 16 * 1024 * 1024 },
+    );
+    const snapshots = JSON.parse(out) as Array<{
+      id?: string;
+      short_id?: string;
+      time?: string;
+      paths?: string[];
+      summary?: {
+        backup_end?: string;
+        total_files_processed?: number;
+        total_bytes_processed?: number;
+      };
+    }>;
+
+    return snapshots
+      .filter((snapshot) => snapshot.time)
+      .sort((a, b) => new Date(b.time ?? 0).getTime() - new Date(a.time ?? 0).getTime())
+      .slice(0, 8)
+      .map((snapshot) => ({
+        id: snapshot.short_id ?? snapshot.id?.slice(0, 8) ?? 'unknown',
+        started: formatDateTime(snapshot.time),
+        ended: formatDateTime(snapshot.summary?.backup_end),
+        paths: snapshot.paths ?? [],
+        files: snapshot.summary?.total_files_processed ?? null,
+        bytes: snapshot.summary?.total_bytes_processed ?? null,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function parseSystemdTime(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '0' || trimmed === 'n/a') return 'never';
+
+  const numeric = Number(trimmed);
+  if (numeric) return formatDateTime(new Date(numeric / 1000).toISOString());
+
+  const withoutWeekday = trimmed.replace(/^[A-Z][a-z]{2}\s+/, '');
+  const normalized = withoutWeekday.replace(/\s(EDT|EST)$/, '');
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (match) {
+    const [, year, month, day, hour, minute] = match;
+    return `${year}-${month}-${day}, ${hour}:${minute}`;
+  }
+
+  return trimmed;
+}
+
+function formatDateTime(value?: string): string {
+  if (!value) return 'unknown';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString('en-CA', {
+    timeZone: 'America/Toronto',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 }
 
 async function readJson<T>(path: string): Promise<T> {
