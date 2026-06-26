@@ -47,7 +47,7 @@ export const POST: APIRoute = async ({ request }) => {
     return new Response('Lead not found.', { status: 404 });
   }
 
-  const args = ['--to', phone, '--body', body, '--human-approved', '--caller', 'aperture-console'];
+  const args = ['--to', phone, '--body', body, '--human-approved', '--reactive', '--caller', 'aperture-boreal'];
   try {
     const { stdout } = await execFileAsync(GATEWAY_PATH, args, { maxBuffer: 1024 * 1024 });
     return Response.json({ ok: true, ...parseGatewayResult(stdout) });

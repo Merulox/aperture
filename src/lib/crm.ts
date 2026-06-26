@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -136,4 +137,106 @@ export async function leadExists(phone: string): Promise<boolean> {
     `SELECT 1 AS found FROM leads WHERE phone = ${sqlText(phone)} LIMIT 1`,
   );
   return rows.length > 0;
+}
+
+// ── Grouped leads (for incall console) ──────────────────────────────────────
+
+export interface LeadGrouped {
+  phone: string;
+  name: string;
+  stage: string;
+  notes: string;
+  close_touch: number;
+  responded_at: string;
+  close_last_ts: string;
+  sent_date: string;
+  postpone_until: string;
+  postpone_note: string;
+  tags: string[];
+  template: string;
+  last_ts: string;
+  last_body: string;
+  last_classification: string;
+}
+
+export async function getLeadsGrouped(): Promise<Record<string, LeadGrouped[]>> {
+  const rows = await query<{
+    phone: string; name: string; stage: string; notes: string;
+    close_touch: number; responded_at: string; close_last_ts: string;
+    sent_date: string; postpone_until: string; postpone_note: string;
+    tags: string; template: string; last_ts: string;
+    last_body: string; last_classification: string;
+  }>(`
+    SELECT phone, name, stage,
+      COALESCE(notes,'') as notes,
+      COALESCE(close_touch,0) as close_touch,
+      COALESCE(responded_at,'') as responded_at,
+      COALESCE(close_last_ts,'') as close_last_ts,
+      COALESCE(sent_date,'') as sent_date,
+      COALESCE(postpone_until,'') as postpone_until,
+      COALESCE(postpone_note,'') as postpone_note,
+      COALESCE(tags,'') as tags,
+      COALESCE(template,'') as template,
+      COALESCE(last_inbound_ts, last_outbound_ts, '') as last_ts,
+      COALESCE(last_inbound_body, last_outbound_body, '') as last_body,
+      COALESCE(last_inbound_class,'') as last_classification
+    FROM leads
+    WHERE stage IN ('RESPONDED','BOOKED','POSTPONED','FROID','STOP','BANNED')
+    ORDER BY COALESCE(last_inbound_ts, last_outbound_ts, sent_date) DESC
+  `);
+
+  const groups: Record<string, LeadGrouped[]> = {
+    responded: [], booked: [], postponed: [], froid: [], stop: [], banned: [],
+  };
+
+  for (const row of rows) {
+    const lead: LeadGrouped = {
+      ...row,
+      tags: row.tags ? row.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+    };
+    const key = row.stage.toLowerCase();
+    if (key in groups) groups[key].push(lead);
+  }
+
+  return groups;
+}
+
+const VALID_STAGES = new Set([
+  'RESPONDED', 'BOOKED', 'WON', 'LOST', 'IGNORED', 'SKIPPED',
+  'DRAFTED', 'POSTPONED', 'STOP', 'BANNED', 'SENT', 'FROID',
+]);
+
+async function execWriteSQL(sql: string): Promise<void> {
+  await promisify(execFile)('sqlite3', [CRM_PATH, sql], { maxBuffer: 1024 * 1024 });
+}
+
+export async function updateLeadStage(phone: string, stage: string): Promise<void> {
+  if (!VALID_STAGES.has(stage)) throw new Error(`Invalid stage: ${stage}`);
+  await execWriteSQL(
+    `UPDATE leads SET stage=${sqlText(stage)},updated_at=datetime('now') WHERE phone=${sqlText(phone)}`,
+  );
+}
+
+export async function setLeadTags(phone: string, tags: string[]): Promise<void> {
+  const tagsStr = tags.map((t) => t.trim()).filter(Boolean).join(',');
+  await execWriteSQL(
+    `UPDATE leads SET tags=${sqlText(tagsStr)},updated_at=datetime('now') WHERE phone=${sqlText(phone)}`,
+  );
+}
+
+const NOTES_DIR = join(homedir(), '.local/share/aperture/incall-notes');
+
+export function getLeadNotes(phone: string): string {
+  try {
+    const safe = phone.replace(/[^0-9+]/g, '');
+    return readFileSync(join(NOTES_DIR, `${safe}.txt`), 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+export function saveLeadNotes(phone: string, notes: string): void {
+  mkdirSync(NOTES_DIR, { recursive: true });
+  const safe = phone.replace(/[^0-9+]/g, '');
+  writeFileSync(join(NOTES_DIR, `${safe}.txt`), notes);
 }
