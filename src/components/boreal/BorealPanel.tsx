@@ -263,6 +263,27 @@ function FollowupQueueBanner() {
   );
 }
 
+function OwnerNameField({ phone, value, onSaved }: { phone: string; value: string; onSaved: (v: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const save = async () => {
+    await fetch('/api/lead-owner', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone, owner_name: draft }) });
+    onSaved(draft);
+    setEditing(false);
+  };
+  if (editing) return (
+    <span style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+      <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void save(); if (e.key === 'Escape') setEditing(false); }} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', padding: '1px 4px', fontSize: '0.75rem', borderRadius: '2px', width: '120px' }} />
+      <button type="button" onClick={() => void save()} style={{ fontSize: '0.65rem', color: 'var(--green)', background: 'none', border: 'none', cursor: 'pointer' }}>✓</button>
+    </span>
+  );
+  return (
+    <span className="incall-contact-val" onClick={() => { setDraft(value); setEditing(true); }} style={{ cursor: 'pointer', color: value ? 'var(--text)' : 'var(--muted)', borderBottom: '1px dashed var(--border)' }} title="Cliquer pour modifier">
+      {value || '—'}
+    </span>
+  );
+}
+
 // ── Incall leads console ──────────────────────────────────────────────────────
 
 function LeadsSection() {
@@ -531,6 +552,12 @@ function LeadsSection() {
                 onClick={() => selectLead(lead)}
               >
                 <div className="incall-item-name">{lead.name}</div>
+                {lead.owner_name && (
+                  <div style={{ fontSize: '0.65rem', color: 'var(--accent)', marginBottom: '1px' }}>{lead.owner_name}</div>
+                )}
+                {lead.template && (
+                  <div style={{ fontSize: '0.6rem', color: 'var(--muted)', marginBottom: '2px' }}>{lead.template.replace(/-/g, ' ')}</div>
+                )}
                 <div className="incall-item-meta">
                   <span style={{ fontSize: '0.6rem', color: 'var(--muted)' }}>{lead.phone.slice(-10)}</span>
                   <span className="incall-stage-badge" style={{ color: stageColor(lead._variant) }}>
@@ -566,8 +593,12 @@ function LeadsSection() {
                   <div className="incall-panel-header">CONTACT</div>
                   <div className="incall-panel-body">
                     <div className="incall-contact-row">
-                      <span className="incall-contact-lbl">NOM</span>
+                      <span className="incall-contact-lbl">ENTREPRISE</span>
                       <span className="incall-contact-val">{selected.name}</span>
+                    </div>
+                    <div className="incall-contact-row">
+                      <span className="incall-contact-lbl">PROPRIÉTAIRE</span>
+                      <OwnerNameField phone={selected.phone} value={selected.owner_name ?? ''} onSaved={(v) => setSelected((s) => s ? { ...s, owner_name: v } : s)} />
                     </div>
                     <div className="incall-contact-row">
                       <span className="incall-contact-lbl">TÉLÉPHONE</span>

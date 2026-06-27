@@ -80,6 +80,7 @@ export interface TaskboardData {
   permissionRequests: PermissionRequest[];
   borealTasks: ExTask[];
   exTasks: ExTask[];
+  vicTasks: ExTask[];
   syntraTasks: SyntraTask[];
   brainBus: BrainBusSummary;
 }
@@ -350,11 +351,13 @@ export async function getTaskboardData(): Promise<TaskboardData> {
     latestJobs(),
   ]);
   const borealTasks = ecosystemTasks.filter((task) => /^BX-/.test(task.id));
-  const exTasks = ecosystemTasks.filter((task) => !/^BX-/.test(task.id));
+  const vicTasks = ecosystemTasks.filter((task) => /^VIC-/.test(task.id));
+  const exTasks = ecosystemTasks.filter((task) => !/^BX-/.test(task.id) && !/^VIC-/.test(task.id));
   return {
     permissionRequests,
     borealTasks: overlayJobState(borealTasks, jobs),
     exTasks: overlayJobState(exTasks, jobs),
+    vicTasks: overlayJobState(vicTasks, jobs),
     syntraTasks: overlayJobState(syntraTasks, jobs),
     brainBus,
   };

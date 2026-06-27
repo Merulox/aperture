@@ -144,6 +144,7 @@ export async function leadExists(phone: string): Promise<boolean> {
 export interface LeadGrouped {
   phone: string;
   name: string;
+  owner_name: string;
   stage: string;
   notes: string;
   close_touch: number;
@@ -161,13 +162,13 @@ export interface LeadGrouped {
 
 export async function getLeadsGrouped(): Promise<Record<string, LeadGrouped[]>> {
   const rows = await query<{
-    phone: string; name: string; stage: string; notes: string;
+    phone: string; name: string; owner_name: string; stage: string; notes: string;
     close_touch: number; responded_at: string; close_last_ts: string;
     sent_date: string; postpone_until: string; postpone_note: string;
     tags: string; template: string; last_ts: string;
     last_body: string; last_classification: string;
   }>(`
-    SELECT phone, name, stage,
+    SELECT phone, name, COALESCE(owner_name,'') as owner_name, stage,
       COALESCE(notes,'') as notes,
       COALESCE(close_touch,0) as close_touch,
       COALESCE(responded_at,'') as responded_at,
@@ -221,6 +222,12 @@ export async function setLeadTags(phone: string, tags: string[]): Promise<void> 
   const tagsStr = tags.map((t) => t.trim()).filter(Boolean).join(',');
   await execWriteSQL(
     `UPDATE leads SET tags=${sqlText(tagsStr)},updated_at=datetime('now') WHERE phone=${sqlText(phone)}`,
+  );
+}
+
+export async function setLeadOwnerName(phone: string, ownerName: string): Promise<void> {
+  await execWriteSQL(
+    `UPDATE leads SET owner_name=${sqlText(ownerName.trim())},updated_at=datetime('now') WHERE phone=${sqlText(phone)}`,
   );
 }
 
