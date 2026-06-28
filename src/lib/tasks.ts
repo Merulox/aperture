@@ -10,6 +10,8 @@ const SYNTRA_TASKS = join(HOME, 'syntra/.agent/TASKS.md');
 const SYNTRA_BRIEFS_DIR = join(HOME, 'syntra/docs/planning');
 const BRAIN_BUS_TASKS = join(HOME, 'obsidian/claude-bus/tasks');
 const APERTURE_JOBS = join(HOME, '.local/share/aperture/jobs');
+const NAVI_TASKS = join(HOME, 'projects/navi/.agent/TASKS.md');
+const NAVI_PROJECT_DIR = join(HOME, 'projects/navi');
 
 interface JobState {
   taskId: string;
@@ -82,6 +84,7 @@ export interface TaskboardData {
   exTasks: ExTask[];
   vicTasks: ExTask[];
   syntraTasks: SyntraTask[];
+  naviTasks: SyntraTask[];
   brainBus: BrainBusSummary;
 }
 
@@ -342,11 +345,74 @@ export async function getBrainBusSummary(): Promise<BrainBusSummary> {
   };
 }
 
+function classifyNaviStatus(status: string): { statusBadge: string; statusTone: string; uninitiated: boolean } {
+  if (status === 'done') return { statusBadge: 'DONE', statusTone: 'muted', uninitiated: false };
+  if (status === 'review') return { statusBadge: 'REVIEW', statusTone: 'orange', uninitiated: false };
+  if (status === 'in_progress') return { statusBadge: 'RUNNING', statusTone: 'blue', uninitiated: false };
+  if (status === 'ready') return { statusBadge: 'READY', statusTone: 'green', uninitiated: true };
+  if (status === 'backlog') return { statusBadge: 'BACKLOG', statusTone: 'yellow', uninitiated: true };
+  if (status === 'blocked') return { statusBadge: 'BLOCKED', statusTone: 'red', uninitiated: false };
+  if (status === 'needs_fix') return { statusBadge: 'NEEDS FIX', statusTone: 'red', uninitiated: false };
+  return { statusBadge: status || 'unknown', statusTone: 'muted', uninitiated: false };
+}
+
+export async function getNaviTasks(): Promise<SyntraTask[]> {
+  const content = await readText(NAVI_TASKS);
+  const seen = new Set<string>();
+  const tasks = await Promise.all(
+    content
+      .split(/\r?\n/)
+      .filter((line) => /^\|\s*[A-Z][A-Z0-9]*-\w+\s*\|/.test(line))
+      .map(async (line): Promise<SyntraTask | null> => {
+        const cells = tableCells(line);
+        if (cells.length < 4) return null;
+        const id = cells[0];
+        if (seen.has(id)) return null;
+        seen.add(id);
+        const status = cells[1].replaceAll('`', '').trim();
+        const title = cells[2] || '';
+
+        // Main table (6 cols): ID | Status | Title | Brief | Owner | Notes
+        // Follow-up table (5 cols): ID | Status | Title | Owner | Notes
+        let briefRef = '';
+        let notes = '';
+        if (cells.length >= 6) {
+          briefRef = cells[3].replaceAll('`', '').trim();
+          notes = cells[5] || '';
+        } else {
+          notes = cells[4] || '';
+        }
+
+        const isValidBrief = briefRef && briefRef !== 'TBD' && briefRef !== '—';
+        const briefPath = isValidBrief
+          ? briefRef.startsWith('~/')
+            ? join(HOME, briefRef.slice(2))
+            : join(NAVI_PROJECT_DIR, briefRef)
+          : '';
+        const preview = await getBriefPreview(briefPath);
+
+        return {
+          id,
+          status,
+          ...classifyNaviStatus(status),
+          priority: '',
+          title,
+          briefPath,
+          ...preview,
+          prompt: '',
+          notes,
+        };
+      }),
+  );
+  return sortTasks(tasks.filter((t): t is SyntraTask => t !== null));
+}
+
 export async function getTaskboardData(): Promise<TaskboardData> {
-  const [permissionRequests, ecosystemTasks, syntraTasks, brainBus, jobs] = await Promise.all([
+  const [permissionRequests, ecosystemTasks, syntraTasks, naviTasks, brainBus, jobs] = await Promise.all([
     getPermissionRequests(),
     getExTasks(),
     getSyntraTasks(),
+    getNaviTasks(),
     getBrainBusSummary(),
     latestJobs(),
   ]);
@@ -359,6 +425,7 @@ export async function getTaskboardData(): Promise<TaskboardData> {
     exTasks: overlayJobState(exTasks, jobs),
     vicTasks: overlayJobState(vicTasks, jobs),
     syntraTasks: overlayJobState(syntraTasks, jobs),
+    naviTasks,
     brainBus,
   };
 }

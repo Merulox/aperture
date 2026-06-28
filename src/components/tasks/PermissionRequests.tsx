@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { CollapsiblePanel } from './CollapsiblePanel';
 
 interface Props {
   items: any[];
@@ -30,11 +31,11 @@ export function PermissionRequests({ items, onResponded }: Props) {
   };
 
   return (
-    <section className="panel" aria-labelledby="requests-heading">
-      <div className="section-head">
-        <div className="label" id="requests-heading">permission requests</div>
-        <span className={`badge ${items.length ? 'badge-red' : 'badge-muted'}`}>{items.length} pending</span>
-      </div>
+    <CollapsiblePanel
+      id="requests-heading"
+      title="permission requests"
+      meta={<span className={`badge ${items.length ? 'badge-red' : 'badge-muted'}`}>{items.length} pending</span>}
+    >
       <div className="request-list">
         {items.length ? items.map((request) => (
           <div className={`request-card urgency-${request.urgency}`} key={request.id}>
@@ -51,6 +52,6 @@ export function PermissionRequests({ items, onResponded }: Props) {
           </div>
         )) : <p className="state-entry">— no pending permission requests —</p>}
       </div>
-    </section>
+    </CollapsiblePanel>
   );
 }

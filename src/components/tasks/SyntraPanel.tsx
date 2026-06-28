@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Job } from '../codex/JobRow';
 import type { LaunchTask } from '../Taskboard';
+import { CollapsiblePanel } from './CollapsiblePanel';
 
 interface Props {
   tasks: any[];
@@ -71,11 +72,7 @@ export function SyntraPanel(props: Props) {
     .sort();
 
   return (
-    <section className="panel" aria-labelledby="syntra-heading">
-      <div className="section-head">
-        <div className="label" id="syntra-heading">syntra</div>
-        <span className="badge badge-muted">{props.tasks.length} tasks</span>
-      </div>
+    <CollapsiblePanel id="syntra-heading" title="syntra" meta={<span className="badge badge-muted">{props.tasks.length} tasks</span>}>
       <div className="syntra-groups">
         {attentionStatuses.map((status) => (
           <section className="syntra-group attention-group" key={status}>
@@ -98,6 +95,6 @@ export function SyntraPanel(props: Props) {
             : <p className="state-entry">— none —</p>}
         </details>
       </div>
-    </section>
+    </CollapsiblePanel>
   );
 }

@@ -1,12 +1,10 @@
+import { CollapsiblePanel } from './CollapsiblePanel';
+
 export function BrainBus({ summary }: { summary: any }) {
   const data = summary ?? { pending: 0, claimed: 0, failed: 0, failedTasks: [] };
 
   return (
-    <section className="panel" aria-labelledby="brain-heading">
-      <div className="section-head">
-        <div className="label" id="brain-heading">brain bus</div>
-        <span className="badge badge-muted">queue</span>
-      </div>
+    <CollapsiblePanel id="brain-heading" title="brain bus" meta={<span className="badge badge-muted">queue</span>}>
       <div className="queue-counts">
         <div><span className="queue-number">{data.pending}</span><span>pending</span></div>
         <div><span className="queue-number">{data.claimed}</span><span>claimed</span></div>
@@ -23,6 +21,6 @@ export function BrainBus({ summary }: { summary: any }) {
           ))}
         </div>
       )}
-    </section>
+    </CollapsiblePanel>
   );
 }

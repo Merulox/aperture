@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Job } from '../codex/JobRow';
 import type { LaunchTask } from '../Taskboard';
+import { CollapsiblePanel } from './CollapsiblePanel';
 
 interface Props {
   tasks: any[];
@@ -88,11 +89,7 @@ export function VictoriquePanel(props: Props) {
   const doneTasks = props.tasks.filter((task) => CLOSED.includes(task.status));
 
   return (
-    <section className="panel" aria-labelledby="vic-heading">
-      <div className="section-head">
-        <div className="label" id="vic-heading">victorique</div>
-        <span className="badge badge-muted">{props.tasks.length} tasks</span>
-      </div>
+    <CollapsiblePanel id="vic-heading" title="victorique" meta={<span className="badge badge-muted">{props.tasks.length} tasks</span>}>
       <div className="ex-grid">
         {activeTasks.length
           ? activeTasks.map((task) => <VictoriqueTaskRow key={task.id} {...props} task={task} active />)
@@ -104,6 +101,6 @@ export function VictoriquePanel(props: Props) {
           </div>
         </details>
       </div>
-    </section>
+    </CollapsiblePanel>
   );
 }

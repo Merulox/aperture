@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Job } from '../codex/JobRow';
 import type { LaunchTask } from '../Taskboard';
+import { CollapsiblePanel } from './CollapsiblePanel';
 
 interface Props {
   tasks: any[];
@@ -80,11 +81,7 @@ export function BorealPanel(props: Props) {
   const doneTasks = props.tasks.filter((task) => CLOSED.includes(task.status));
 
   return (
-    <section className="panel" aria-labelledby="boreal-heading">
-      <div className="section-head">
-        <div className="label" id="boreal-heading">Boréal</div>
-        <span className="badge badge-muted">{props.tasks.length} tasks</span>
-      </div>
+    <CollapsiblePanel id="boreal-heading" title="Boréal" meta={<span className="badge badge-muted">{props.tasks.length} tasks</span>}>
       <div className="ex-grid">
         {activeTasks.length
           ? activeTasks.map((task) => <BorealTaskRow key={task.id} {...props} task={task} active />)
@@ -96,6 +93,6 @@ export function BorealPanel(props: Props) {
           </div>
         </details>
       </div>
-    </section>
+    </CollapsiblePanel>
   );
 }

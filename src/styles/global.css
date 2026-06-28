@@ -178,6 +178,28 @@ main {
   margin: 0;
 }
 
+.section-head-collapsible {
+  cursor: pointer;
+  user-select: none;
+}
+
+.section-head-collapsible:hover .label {
+  color: var(--text);
+}
+
+.section-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.collapse-chevron {
+  color: var(--muted);
+  font-size: 0.6rem;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
 .now-title {
   color: var(--blue);
   text-decoration: none;

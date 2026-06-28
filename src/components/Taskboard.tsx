@@ -5,6 +5,7 @@ import { BorealPanel } from './tasks/BorealPanel';
 import { ExPanel } from './tasks/ExPanel';
 import { VictoriquePanel } from './tasks/VictoriquePanel';
 import { SyntraPanel } from './tasks/SyntraPanel';
+import { NaviPanel } from './tasks/NaviPanel';
 import { PermissionRequests } from './tasks/PermissionRequests';
 import { BrainBus } from './tasks/BrainBus';
 import { EscalationPanel } from './tasks/EscalationPanel';
@@ -103,6 +104,7 @@ export default function Taskboard() {
         <ExPanel tasks={overlayJobs(data?.exTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
         <VictoriquePanel tasks={overlayJobs(data?.vicTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
         <SyntraPanel tasks={overlayJobs(data?.syntraTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
+        <NaviPanel tasks={data?.naviTasks ?? []} />
         <CodexPanel jobs={jobs} />
         <BrainBus summary={data?.brainBus} />
       </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Job } from '../codex/JobRow';
 import type { LaunchTask } from '../Taskboard';
+import { CollapsiblePanel } from './CollapsiblePanel';
 
 interface Props {
   tasks: any[];
@@ -88,11 +89,7 @@ export function ExPanel(props: Props) {
   const doneTasks = props.tasks.filter((task) => CLOSED.includes(task.status));
 
   return (
-    <section className="panel" aria-labelledby="ex-heading">
-      <div className="section-head">
-        <div className="label" id="ex-heading">ex tasks</div>
-        <span className="badge badge-muted">{props.tasks.length} tasks</span>
-      </div>
+    <CollapsiblePanel id="ex-heading" title="ex tasks" meta={<span className="badge badge-muted">{props.tasks.length} tasks</span>}>
       <div className="ex-grid">
         {activeTasks.length
           ? activeTasks.map((task) => <ExTaskRow key={task.id} {...props} task={task} active />)
@@ -104,6 +101,6 @@ export function ExPanel(props: Props) {
           </div>
         </details>
       </div>
-    </section>
+    </CollapsiblePanel>
   );
 }
