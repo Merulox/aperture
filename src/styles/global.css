@@ -2,7 +2,7 @@
   --bg: #0a0a0a;
   --surface: #111111;
   --text: #e0e0e0;
-  --muted: #555;
+  --muted: #999;
   --green: #4ade80;
   --yellow: #f59e0b;
   --red: #ef4444;
@@ -77,7 +77,7 @@ main {
 
 .label {
   margin-bottom: 10px;
-  color: var(--muted);
+  color: #bbb;
   font-size: 0.7rem;
   text-transform: uppercase;
 }
