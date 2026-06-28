@@ -4,7 +4,7 @@ import { getDashboardData } from '../lib/data';
 import { getNextActions } from '../lib/actions';
 import NowPanel from '../components/now/NowPanel.astro';
 
-const [{ health, genesis, vitals, mode, monitor, backup }, actions] = await Promise.all([
+const [{ health, genesis, vitals, mode, monitor, backup, system }, actions] = await Promise.all([
   getDashboardData(),
   getNextActions(),
 ]);
@@ -38,12 +38,37 @@ function switchTone(value: boolean | string): string {
   return value === false || value === 'disabled' ? 'green' : 'yellow';
 }
 
+function processTone(risk: string): string {
+  if (risk === 'critical') return 'red';
+  if (risk === 'warning') return 'yellow';
+  return 'muted';
+}
+
+function pressureTone(value: number | null): string {
+  if (value === null) return 'muted';
+  if (value >= 10) return 'red';
+  if (value >= 3) return 'yellow';
+  return 'green';
+}
+
 function formatMoney(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
 function formatScore(score: number): string {
   return score.toFixed(2);
+}
+
+function formatBytes(value: number | null): string {
+  if (value === null) return 'unknown';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = value;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
 function ageInDays(timestamp: string): number {
@@ -157,6 +182,91 @@ function ageInDays(timestamp: string): number {
         </div>
       </section>
 
+      <section class="panel panel-wide" aria-labelledby="process-heading" data-system-panel>
+        <div class="section-head">
+          <div class="label" id="process-heading">process memory</div>
+          <span class="badge badge-muted" data-system-ts>{system.ts}</span>
+        </div>
+        <div class="resource-grid">
+          <div class="resource-meter">
+            <div class="resource-head">
+              <span>memory</span>
+              <span data-memory-percent>{system.memory.pressurePercent.toFixed(1)}%</span>
+            </div>
+            <div class="meter-track" aria-hidden="true">
+              <div class="meter-fill" data-memory-fill style={`width: ${Math.min(system.memory.pressurePercent, 100)}%`}></div>
+            </div>
+            <p data-memory-detail>{formatBytes(system.memory.usedBytes)} used · {formatBytes(system.memory.availableBytes)} available</p>
+          </div>
+          <button class="resource-meter resource-meter-button" type="button" data-open-swap>
+            <div class="resource-head">
+              <span>swap</span>
+              <span data-swap-percent>{system.swap.pressurePercent.toFixed(1)}%</span>
+            </div>
+            <div class="meter-track" aria-hidden="true">
+              <div class="meter-fill meter-fill-swap" data-swap-fill style={`width: ${Math.min(system.swap.pressurePercent, 100)}%`}></div>
+            </div>
+            <p data-swap-detail>{formatBytes(system.swap.usedBytes)} used · {formatBytes(system.swap.freeBytes)} free</p>
+          </button>
+          <div class="pressure-list" data-pressure-list>
+            <span class={`badge badge-${pressureTone(system.pressure.cpuSome)}`}>cpu {system.pressure.cpuSome ?? 'n/a'}</span>
+            <span class={`badge badge-${pressureTone(system.pressure.memorySome)}`}>mem {system.pressure.memorySome ?? 'n/a'}</span>
+            <span class={`badge badge-${pressureTone(system.pressure.memoryFull)}`}>mem full {system.pressure.memoryFull ?? 'n/a'}</span>
+            <span class={`badge badge-${pressureTone(system.pressure.ioSome)}`}>io {system.pressure.ioSome ?? 'n/a'}</span>
+          </div>
+        </div>
+
+        <div class="process-split">
+          <section>
+            <div class="section-head section-head-tight">
+              <div class="label">flagged</div>
+              <span class="badge badge-yellow" data-flagged-count>{system.flagged.length} watched</span>
+            </div>
+            <div class="process-table" data-flagged-table>
+              {
+                system.flagged.length > 0 ? (
+                  system.flagged.map((process) => (
+                    <div class="process-row" data-pid={process.pid}>
+                      <span class="process-pid">{process.pid}</span>
+                      <span class="process-command" title={process.args}>{process.command}</span>
+                      <span>{formatBytes(process.rssBytes)}</span>
+                      <span>{formatBytes(process.swapBytes)} swap</span>
+                      <span>{process.cpu.toFixed(0)}% cpu</span>
+                      <span class={`badge badge-${processTone(process.risk)}`}>{process.reason}</span>
+                      {process.manageable ? (
+                        <button class="process-kill" type="button" data-kill-pid={process.pid}>term</button>
+                      ) : (
+                        <span class="muted">locked</span>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  <p class="state-entry">— no high-risk processes —</p>
+                )
+              }
+            </div>
+          </section>
+          <section>
+            <div class="section-head section-head-tight">
+              <div class="label">top memory</div>
+              <span class="badge badge-muted" data-top-count>{system.top.length} shown</span>
+            </div>
+            <div class="process-table" data-top-table>
+              {system.top.map((process) => (
+                <div class="process-row process-row-compact">
+                  <span class="process-pid">{process.pid}</span>
+                  <span class="process-command" title={process.args}>{process.command}</span>
+                  <span>{formatBytes(process.rssBytes)}</span>
+                  <span>{formatBytes(process.swapBytes)} swap</span>
+                  <span>{process.cpu.toFixed(0)}% cpu</span>
+                  <span class={`badge badge-${processTone(process.risk)}`}>{process.risk}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      </section>
+
       <section class="panel panel-wide" aria-labelledby="system-health-heading">
         <div class="section-head">
           <div class="label" id="system-health-heading">system health</div>
@@ -225,6 +335,231 @@ function ageInDays(timestamp: string): number {
         }
       </section>
     </div>
+
+    <dialog class="backup-dialog" data-swap-dialog aria-labelledby="swap-dialog-heading">
+      <div class="dialog-head">
+        <div>
+          <div class="label">swap composition</div>
+          <h2 id="swap-dialog-heading" data-swap-title>{formatBytes(system.swap.usedBytes)} used</h2>
+        </div>
+        <button class="dialog-close" data-close-swap type="button" aria-label="Close">x</button>
+      </div>
+      <div class="backup-summary" data-swap-summary>
+        <span class={`badge badge-${pressureTone(system.pressure.memorySome)}`}>memory pressure {system.pressure.memorySome ?? 'n/a'}</span>
+        <span class={`badge badge-${pressureTone(system.pressure.ioSome)}`}>io pressure {system.pressure.ioSome ?? 'n/a'}</span>
+        <span>{formatBytes(system.swap.freeBytes)} free</span>
+      </div>
+      <div class="swap-dialog-grid">
+        <section>
+          <div class="section-head section-head-tight">
+            <div class="label">by command</div>
+            <span class="badge badge-muted" data-swap-groups-count>{system.swap.byCommand.length} groups</span>
+          </div>
+          <div class="process-table" data-swap-groups-table>
+            {system.swap.byCommand.map((group) => (
+              <div class="swap-group-row">
+                <span class="process-command">{group.command}</span>
+                <span>{group.count} proc</span>
+                <span>{formatBytes(group.swapBytes)}</span>
+                <span class="muted">{formatBytes(group.rssBytes)} rss</span>
+              </div>
+            ))}
+          </div>
+        </section>
+        <section>
+          <div class="section-head section-head-tight">
+            <div class="label">top swapped processes</div>
+            <span class="badge badge-muted" data-swap-top-count>{system.swap.top.length} shown</span>
+          </div>
+          <div class="process-table" data-swap-top-table>
+            {system.swap.top.map((process) => (
+              <div class="swap-process-row" data-pid={process.pid}>
+                <span class="process-pid">{process.pid}</span>
+                <span class="process-command" title={process.args}>{process.command}</span>
+                <span>{formatBytes(process.swapBytes)}</span>
+                <span class="muted">{formatBytes(process.rssBytes)} rss</span>
+                {process.manageable ? (
+                  <button class="process-kill" type="button" data-kill-pid={process.pid}>term</button>
+                ) : (
+                  <span class="muted">locked</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </dialog>
   </main>
+  <script>
+    const swapDialog = document.querySelector('[data-swap-dialog]');
+    const swapOpen = document.querySelector('[data-open-swap]');
+    const swapClose = document.querySelector('[data-close-swap]');
+
+    swapOpen?.addEventListener('click', () => {
+      if (swapDialog instanceof HTMLDialogElement) swapDialog.showModal();
+    });
+    swapClose?.addEventListener('click', () => {
+      if (swapDialog instanceof HTMLDialogElement) swapDialog.close();
+    });
+    swapDialog?.addEventListener('click', (event) => {
+      if (event.target === swapDialog && swapDialog instanceof HTMLDialogElement) {
+        swapDialog.close();
+      }
+    });
+
+    const formatBytesLive = (value) => {
+      if (value === null || value === undefined) return 'unknown';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      let size = value;
+      let unit = 0;
+      while (size >= 1024 && unit < units.length - 1) {
+        size /= 1024;
+        unit += 1;
+      }
+      return `${size.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+    };
+    const processToneLive = (risk) => {
+      if (risk === 'critical') return 'red';
+      if (risk === 'warning') return 'yellow';
+      return 'muted';
+    };
+    const pressureToneLive = (value) => {
+      if (value === null || value === undefined) return 'muted';
+      if (value >= 10) return 'red';
+      if (value >= 3) return 'yellow';
+      return 'green';
+    };
+    const escapeHtml = (value) =>
+      String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[char]);
+    const setText = (selector, text) => {
+      const element = document.querySelector(selector);
+      if (element) element.textContent = text;
+    };
+    const setWidth = (selector, value) => {
+      const element = document.querySelector(selector);
+      if (element instanceof HTMLElement) element.style.width = `${Math.min(value, 100)}%`;
+    };
+    const renderPressure = (pressure) => `
+      <span class="badge badge-${pressureToneLive(pressure.cpuSome)}">cpu ${pressure.cpuSome ?? 'n/a'}</span>
+      <span class="badge badge-${pressureToneLive(pressure.memorySome)}">mem ${pressure.memorySome ?? 'n/a'}</span>
+      <span class="badge badge-${pressureToneLive(pressure.memoryFull)}">mem full ${pressure.memoryFull ?? 'n/a'}</span>
+      <span class="badge badge-${pressureToneLive(pressure.ioSome)}">io ${pressure.ioSome ?? 'n/a'}</span>
+    `;
+    const renderManageAction = (process) => process.manageable
+      ? `<button class="process-kill" type="button" data-kill-pid="${process.pid}">term</button>`
+      : '<span class="muted">locked</span>';
+    const renderProcessRow = (process, compact = false) => `
+      <div class="process-row ${compact ? 'process-row-compact' : ''}" data-pid="${process.pid}">
+        <span class="process-pid">${process.pid}</span>
+        <span class="process-command" title="${escapeHtml(process.args)}">${escapeHtml(process.command)}</span>
+        <span>${formatBytesLive(process.rssBytes)}</span>
+        <span>${formatBytesLive(process.swapBytes)} swap</span>
+        <span>${Number(process.cpu).toFixed(0)}% cpu</span>
+        <span class="badge badge-${processToneLive(process.risk)}">${escapeHtml(compact ? process.risk : process.reason)}</span>
+        ${compact ? '' : renderManageAction(process)}
+      </div>
+    `;
+    const renderSwapGroup = (group) => `
+      <div class="swap-group-row">
+        <span class="process-command">${escapeHtml(group.command)}</span>
+        <span>${group.count} proc</span>
+        <span>${formatBytesLive(group.swapBytes)}</span>
+        <span class="muted">${formatBytesLive(group.rssBytes)} rss</span>
+      </div>
+    `;
+    const renderSwapProcess = (process) => `
+      <div class="swap-process-row" data-pid="${process.pid}">
+        <span class="process-pid">${process.pid}</span>
+        <span class="process-command" title="${escapeHtml(process.args)}">${escapeHtml(process.command)}</span>
+        <span>${formatBytesLive(process.swapBytes)}</span>
+        <span class="muted">${formatBytesLive(process.rssBytes)} rss</span>
+        ${renderManageAction(process)}
+      </div>
+    `;
+    const setHtml = (selector, html) => {
+      const element = document.querySelector(selector);
+      if (element) element.innerHTML = html;
+    };
+    const renderSystem = (system) => {
+      setText('[data-system-ts]', system.ts);
+      setText('[data-memory-percent]', `${system.memory.pressurePercent.toFixed(1)}%`);
+      setWidth('[data-memory-fill]', system.memory.pressurePercent);
+      setText(
+        '[data-memory-detail]',
+        `${formatBytesLive(system.memory.usedBytes)} used · ${formatBytesLive(system.memory.availableBytes)} available`,
+      );
+      setText('[data-swap-percent]', `${system.swap.pressurePercent.toFixed(1)}%`);
+      setWidth('[data-swap-fill]', system.swap.pressurePercent);
+      setText(
+        '[data-swap-detail]',
+        `${formatBytesLive(system.swap.usedBytes)} used · ${formatBytesLive(system.swap.freeBytes)} free`,
+      );
+      setHtml('[data-pressure-list]', renderPressure(system.pressure));
+      setText('[data-flagged-count]', `${system.flagged.length} watched`);
+      setHtml(
+        '[data-flagged-table]',
+        system.flagged.length
+          ? system.flagged.map((process) => renderProcessRow(process)).join('')
+          : '<p class="state-entry">— no high-risk processes —</p>',
+      );
+      setText('[data-top-count]', `${system.top.length} shown`);
+      setHtml('[data-top-table]', system.top.map((process) => renderProcessRow(process, true)).join(''));
+      setText('[data-swap-title]', `${formatBytesLive(system.swap.usedBytes)} used`);
+      setHtml(
+        '[data-swap-summary]',
+        `<span class="badge badge-${pressureToneLive(system.pressure.memorySome)}">memory pressure ${system.pressure.memorySome ?? 'n/a'}</span>
+         <span class="badge badge-${pressureToneLive(system.pressure.ioSome)}">io pressure ${system.pressure.ioSome ?? 'n/a'}</span>
+         <span>${formatBytesLive(system.swap.freeBytes)} free</span>`,
+      );
+      setText('[data-swap-groups-count]', `${system.swap.byCommand.length} groups`);
+      setHtml('[data-swap-groups-table]', system.swap.byCommand.map(renderSwapGroup).join(''));
+      setText('[data-swap-top-count]', `${system.swap.top.length} shown`);
+      setHtml('[data-swap-top-table]', system.swap.top.map(renderSwapProcess).join(''));
+    };
+    const refreshSystem = async () => {
+      try {
+        const response = await fetch('/api/system-resources', { cache: 'no-store' });
+        if (!response.ok) return;
+        renderSystem(await response.json());
+      } catch {
+        // Keep the last snapshot visible if a poll races a restart.
+      }
+    };
+
+    document.addEventListener('click', async (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const button = target.closest('[data-kill-pid]');
+      if (!(button instanceof HTMLButtonElement)) return;
+      const pid = Number(button.dataset.killPid);
+      if (!Number.isInteger(pid)) return;
+
+      button.disabled = true;
+      button.textContent = 'term...';
+      const response = await fetch('/api/process-kill', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pid }),
+      });
+
+      if (response.ok) {
+        button.textContent = 'sent';
+        button.closest('[data-pid]')?.classList.add('process-row-terminated');
+        setTimeout(refreshSystem, 800);
+      } else {
+        button.disabled = false;
+        button.textContent = 'failed';
+      }
+    });
+
+    refreshSystem();
+    setInterval(refreshSystem, 5000);
+  </script>
 </body>
 </html>
