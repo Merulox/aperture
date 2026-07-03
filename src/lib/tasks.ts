@@ -12,6 +12,8 @@ const BRAIN_BUS_TASKS = join(HOME, 'obsidian/claude-bus/tasks');
 const APERTURE_JOBS = join(HOME, '.local/share/aperture/jobs');
 const NAVI_TASKS = join(HOME, 'projects/navi/.agent/TASKS.md');
 const NAVI_PROJECT_DIR = join(HOME, 'projects/navi');
+export const PROVIDED_INPUTS_HEADING = 'PROVIDED INPUTS (via Aperture)';
+export const GATES_RE = /<!--\s*gates:\s*depends=([^;]*);\s*inputs=([^;]*);\s*confirms=([^>]*?)\s*-->/;
 
 interface JobState {
   taskId: string;
@@ -63,6 +65,13 @@ export interface SyntraTask {
   statusTone: string;
   uninitiated: boolean;
   notes: string;
+  dependsOn: string;
+  blocked: boolean;
+  requiredInputs: string[];
+  requiredConfirms: string[];
+  providedInputs: Record<string, string>;
+  providedConfirms: string[];
+  missingGates: string[];
 }
 
 export interface FailedBrainTask {
@@ -108,6 +117,89 @@ function tableCells(line: string): string[] {
     .replace(/\|$/, '')
     .split('|')
     .map((cell) => cell.trim());
+}
+
+function splitGateField(value: string): string[] {
+  return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+export interface ProvidedBriefInputs {
+  inputs: Record<string, string>;
+  confirms: string[];
+}
+
+export interface SyntraGateState {
+  dependsOn: string;
+  blocked: boolean;
+  requiredInputs: string[];
+  requiredConfirms: string[];
+  providedInputs: Record<string, string>;
+  providedConfirms: string[];
+  missingGates: string[];
+}
+
+export function parseProvidedInputs(content: string): ProvidedBriefInputs {
+  const lines = content.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === `## ${PROVIDED_INPUTS_HEADING}`);
+  const end = start < 0 ? -1 : lines.findIndex((line, index) => index > start && line.startsWith('## '));
+  const section = start < 0 ? [] : lines.slice(start + 1, end < 0 ? undefined : end);
+  const inputs: Record<string, string> = {};
+  const confirms: string[] = [];
+
+  for (const line of section) {
+    const confirm = line.match(/^\s*-\s+\[x\]\s+(.+?)\s*$/i);
+    if (confirm) {
+      confirms.push(confirm[1].trim());
+      continue;
+    }
+    const input = line.match(/^\s*-\s+([^:]+):\s*(.*?)\s*$/);
+    if (input) inputs[input[1].trim()] = input[2].trim();
+  }
+
+  return { inputs, confirms: [...new Set(confirms)] };
+}
+
+export function syntraGateState(briefContent: string, statusMap = new Map<string, string>()): SyntraGateState {
+  const gates = briefContent.match(GATES_RE);
+  const depends = gates ? splitGateField(gates[1]) : [];
+  const requiredInputs = gates ? splitGateField(gates[2]) : [];
+  const requiredConfirms = gates ? splitGateField(gates[3]) : [];
+  const provided = parseProvidedInputs(briefContent);
+  const providedConfirmSet = new Set(provided.confirms);
+
+  const missingDeps = depends.filter((dep) => statusMap.get(dep) !== 'done');
+  const missingInputs = requiredInputs.filter((input) => !provided.inputs[input]?.trim());
+  const missingConfirms = requiredConfirms.filter((confirm) => !providedConfirmSet.has(confirm));
+  const missingGates = [
+    ...missingDeps.map((dep) => `requires ${dep} (${statusMap.get(dep) || 'missing'})`),
+    ...missingInputs.map((input) => `input: ${input}`),
+    ...missingConfirms.map((confirm) => `confirm: ${confirm}`),
+  ];
+
+  return {
+    dependsOn: depends.join(','),
+    blocked: missingDeps.length > 0,
+    requiredInputs,
+    requiredConfirms,
+    providedInputs: provided.inputs,
+    providedConfirms: provided.confirms,
+    missingGates,
+  };
+}
+
+export async function readSyntraStatusMap(): Promise<Map<string, string>> {
+  const content = await readText(SYNTRA_TASKS);
+  return syntraStatusMapFromTasksContent(content);
+}
+
+function syntraStatusMapFromTasksContent(content: string): Map<string, string> {
+  return new Map(content
+    .split(/\r?\n/)
+    .filter((line) => /^\|\s*[A-Z]+-\d+[a-z]?\s*\|/.test(line))
+    .map((line) => {
+      const cells = tableCells(line);
+      return [cells[0], (cells[1] || 'unknown').replaceAll('`', '')] as const;
+    }));
 }
 
 async function readText(path: string): Promise<string> {
@@ -208,6 +300,15 @@ function promptForBrief(briefPath: string): string {
   ].join('\n');
 }
 
+function naviPromptForBrief(briefPath: string): string {
+  const displayPath = briefPath.startsWith(HOME) ? `~${briefPath.slice(HOME.length)}` : briefPath;
+  return [
+    'Read ~/projects/navi/.agent/roles/executor.md.',
+    `Then read ${displayPath} and implement it.`,
+    'Report back: files changed, verification output (paste raw), any deviations from the brief.',
+  ].join('\n');
+}
+
 export async function getPermissionRequests(): Promise<PermissionRequest[]> {
   const files = await listFiles(PERMISSION_DIR);
   const responseIds = new Set(
@@ -283,6 +384,7 @@ export async function getExTasks(): Promise<ExTask[]> {
 
 export async function getSyntraTasks(): Promise<SyntraTask[]> {
   const content = await readText(SYNTRA_TASKS);
+  const statusMap = syntraStatusMapFromTasksContent(content);
   const tasks = await Promise.all(content
     .split(/\r?\n/)
     .filter((line) => /^\|\s*[A-Z]+-\d+[a-z]?\s*\|/.test(line))
@@ -299,6 +401,7 @@ export async function getSyntraTasks(): Promise<SyntraTask[]> {
             : join(SYNTRA_BRIEFS_DIR, briefRef)
         : '';
       const preview = await getBriefPreview(briefPath);
+      const gates = syntraGateState(preview.briefContent, statusMap);
       return {
         id: cells[0],
         status,
@@ -313,6 +416,7 @@ export async function getSyntraTasks(): Promise<SyntraTask[]> {
             : 'Brief not yet written — architect must write it first.'
           : '',
         notes: cells[6] || '',
+        ...gates,
       };
     }));
   return sortTasks(tasks);
@@ -399,7 +503,7 @@ export async function getNaviTasks(): Promise<SyntraTask[]> {
           title,
           briefPath,
           ...preview,
-          prompt: '',
+          prompt: status === 'ready' && briefPath ? naviPromptForBrief(briefPath) : '',
           notes,
         };
       }),

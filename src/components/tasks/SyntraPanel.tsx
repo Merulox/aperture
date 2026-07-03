@@ -8,6 +8,7 @@ interface Props {
   jobs: Job[];
   launchingTaskId: string;
   onLaunch: (task: LaunchTask) => Promise<void>;
+  onRefresh?: () => Promise<void>;
 }
 
 function BriefPreview({ task }: { task: any }) {
@@ -19,7 +20,7 @@ function BriefPreview({ task }: { task: any }) {
   );
 }
 
-function Prompt({ task, jobs, launchingTaskId, onLaunch }: Props & { task: any }) {
+function Prompt({ task, jobs, launchingTaskId, onLaunch, onRefresh }: Props & { task: any }) {
   const [copied, setCopied] = useState(false);
   const running = jobs.find((job) => job.taskId === task.id && job.status === 'running');
   const launching = launchingTaskId === task.id;
@@ -36,16 +37,98 @@ function Prompt({ task, jobs, launchingTaskId, onLaunch }: Props & { task: any }
       <div className="prompt-actions">
         <button type="button" className="copy-prompt" onClick={() => void copy()}>{copied ? 'Copied ✓' : 'Copy prompt'}</button>
         {task.status === 'briefed' && (
-          <button
-            type="button"
-            className="launch-codex"
-            disabled={launching || Boolean(running)}
-            onClick={() => void onLaunch(task)}
-          >
-            {launching ? 'Launching...' : running ? `Running (PID ${running.pid})` : 'Send to Codex'}
-          </button>
+          task.missingGates?.length > 0 ? (
+            <div className="dep-gate">
+              <button type="button" className="launch-codex btn-disabled" disabled>Send to Codex</button>
+              <span className="dep-label">{task.missingGates.join(', ')}</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="launch-codex"
+              disabled={launching || Boolean(running)}
+              onClick={() => void onLaunch(task)}
+            >
+              {launching ? 'Launching...' : running ? `Running (PID ${running.pid})` : 'Send to Codex'}
+            </button>
+          )
         )}
       </div>
+      <InputsForm task={task} onRefresh={onRefresh} />
+    </div>
+  );
+}
+
+function InputsForm({ task, onRefresh }: { task: any; onRefresh?: () => Promise<void> }) {
+  const requiredInputs = task.requiredInputs || [];
+  const requiredConfirms = task.requiredConfirms || [];
+  const providedInputs = task.providedInputs || {};
+  const providedConfirms = new Set(task.providedConfirms || []);
+  const unmetInputs = requiredInputs.filter((input: string) => !providedInputs[input]);
+  const unmetConfirms = requiredConfirms.filter((confirm: string) => !providedConfirms.has(confirm));
+  const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [confirms, setConfirms] = useState<Record<string, boolean>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  if (!requiredInputs.length && !requiredConfirms.length) return null;
+
+  const save = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const payloadInputs = Object.fromEntries(unmetInputs.map((input: string) => [input, inputs[input] || '']));
+      const payloadConfirms = unmetConfirms.filter((confirm: string) => confirms[confirm]);
+      const response = await fetch('/api/brief-inputs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ briefPath: task.briefPath, inputs: payloadInputs, confirms: payloadConfirms }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      await onRefresh?.();
+      setInputs({});
+      setConfirms({});
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : String(saveError));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="brief-inputs">
+      {requiredInputs.map((input: string) => providedInputs[input] ? (
+        <label className="brief-input-field" key={input}>
+          <span>{input}</span>
+          <input type="text" value={providedInputs[input]} readOnly />
+        </label>
+      ) : (
+        <label className="brief-input-field" key={input}>
+          <span>{input}</span>
+          <input
+            type="text"
+            value={inputs[input] || ''}
+            onChange={(event) => setInputs((current) => ({ ...current, [input]: event.target.value }))}
+          />
+        </label>
+      ))}
+      {requiredConfirms.map((confirm: string) => (
+        <label className="brief-confirm-field" key={confirm}>
+          <input
+            type="checkbox"
+            checked={providedConfirms.has(confirm) || Boolean(confirms[confirm])}
+            disabled={providedConfirms.has(confirm)}
+            onChange={(event) => setConfirms((current) => ({ ...current, [confirm]: event.target.checked }))}
+          />
+          <span>{confirm}</span>
+        </label>
+      ))}
+      {(unmetInputs.length > 0 || unmetConfirms.length > 0) && (
+        <button type="button" className="save-inputs" disabled={saving} onClick={() => void save()}>
+          {saving ? 'Saving...' : 'Save inputs'}
+        </button>
+      )}
+      {error && <p className="brief-input-error">{error}</p>}
     </div>
   );
 }

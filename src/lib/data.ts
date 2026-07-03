@@ -1,5 +1,5 @@
 import { execFileSync, execSync } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
 const HEALTH_PATH = '/home/merulox/obsidian/knowledge/projects/genesis/health.json';
@@ -11,6 +11,10 @@ const MODE_PATH = '/home/merulox/projects/realm/mode.json';
 // LIVE telemetry — the crown jewel (written continuously by realm monitor hooks)
 const MONITOR_HEALTH_PATH = '/home/merulox/projects/realm/monitor/service-health.jsonl';
 const MONITOR_AUDIT_PATH = '/home/merulox/projects/realm/monitor/genesis-audit.jsonl';
+const RESOURCE_ALERT_STATE_PATH = '/home/merulox/.cache/aperture-resource-alert.json';
+const RESOURCE_ALERT_COOLDOWN_MS = 15 * 60 * 1000;
+const MIB = 1024 * 1024;
+const GIB = 1024 * MIB;
 const BACKUP_REPOSITORY = 'Cloudflare R2 / navi-backup';
 const BACKUP_REPOSITORY_URL =
   's3:https://85fd3bf83c5ee32ce2e3353fa0a58409.r2.cloudflarestorage.com/navi-backup';
@@ -177,8 +181,15 @@ export type SystemResources = {
     ioSome: number | null;
     ioFull: number | null;
   };
+  alert: ResourceAlert;
   top: SystemProcess[];
   flagged: SystemProcess[];
+};
+
+export type ResourceAlert = {
+  level: 'normal' | 'warning' | 'critical';
+  reasons: string[];
+  summary: string;
 };
 
 export type BackupStatus = {
@@ -283,6 +294,8 @@ export async function readSystemResources(): Promise<SystemResources> {
 
   memory.swap.top = swapTop;
   memory.swap.byCommand = swapByCommand;
+  const alert = classifyResourceAlert(memory, pressure);
+  maybeSendResourceAlert(alert, memory.swap.byCommand, swapTop);
 
   return {
     ts: new Date().toLocaleString('en-CA', {
@@ -297,9 +310,129 @@ export async function readSystemResources(): Promise<SystemResources> {
     memory,
     swap: memory.swap,
     pressure,
+    alert,
     top: processes.slice(0, 12),
     flagged,
   };
+}
+
+function classifyResourceAlert(
+  memory: Awaited<ReturnType<typeof readMeminfo>>,
+  pressure: SystemResources['pressure'],
+): ResourceAlert {
+  const reasons: string[] = [];
+  let level: ResourceAlert['level'] = 'normal';
+
+  const mark = (next: ResourceAlert['level'], reason: string) => {
+    reasons.push(reason);
+    if (next === 'critical' || (next === 'warning' && level === 'normal')) {
+      level = next;
+    }
+  };
+
+  if (memory.totalBytes > 0) {
+    if (memory.availableBytes <= 768 * MIB || memory.pressurePercent >= 97) {
+      mark('critical', `RAM critical: ${formatBytes(memory.availableBytes)} available`);
+    } else if (memory.availableBytes <= 2 * GIB || memory.pressurePercent >= 92) {
+      mark('warning', `RAM low: ${formatBytes(memory.availableBytes)} available`);
+    }
+  }
+
+  if (memory.swap.totalBytes > 0) {
+    if (memory.swap.freeBytes <= 256 * MIB || memory.swap.pressurePercent >= 98) {
+      mark('critical', `swap critical: ${formatBytes(memory.swap.freeBytes)} free`);
+    } else if (memory.swap.freeBytes <= GIB || memory.swap.pressurePercent >= 90) {
+      mark('warning', `swap low: ${formatBytes(memory.swap.freeBytes)} free`);
+    }
+  }
+
+  if ((pressure.memoryFull ?? 0) >= 5) {
+    mark('critical', `memory stall critical: full avg60 ${pressure.memoryFull}`);
+  } else if ((pressure.memoryFull ?? 0) >= 1 || (pressure.memorySome ?? 0) >= 20) {
+    mark('warning', `memory pressure elevated: some avg60 ${pressure.memorySome ?? 'n/a'}`);
+  }
+
+  return {
+    level,
+    reasons,
+    summary: reasons.length ? reasons.join(' · ') : 'resources normal',
+  };
+}
+
+function maybeSendResourceAlert(
+  alert: ResourceAlert,
+  swapGroups: SwapGroup[],
+  swapTop: SystemProcess[],
+) {
+  if (alert.level === 'normal') {
+    writeResourceAlertState({ level: 'normal', sentAt: 0 });
+    return;
+  }
+
+  const now = Date.now();
+  const state = readResourceAlertState();
+  if (state.level === alert.level && now - state.sentAt < RESOURCE_ALERT_COOLDOWN_MS) return;
+
+  const swapOffenders = swapGroups
+    .slice(0, 3)
+    .map((group) => `${group.command} ${formatBytes(group.swapBytes)}`)
+    .join(', ');
+  const processHint = swapTop
+    .find((process) => process.manageable)
+    ? `Open Aperture swap composition and terminate a manageable top swapped process if it is expendable.`
+    : `Open Aperture swap composition to inspect top swapped processes.`;
+  const body = [
+    alert.summary,
+    swapOffenders ? `Top swap: ${swapOffenders}` : 'No per-process swap attribution available.',
+    processHint,
+  ].join('\n');
+
+  const urgency = alert.level === 'critical' ? 'critical' : 'normal';
+  const title = alert.level === 'critical' ? 'Memory/swap critical' : 'Memory/swap warning';
+
+  tryNotify(['dunstify', '-u', urgency, '-a', 'Aperture', title, body]) ||
+    tryNotify(['notify-send', '-u', urgency, '-a', 'Aperture', title, body]);
+  writeResourceAlertState({ level: alert.level, sentAt: now });
+}
+
+function readResourceAlertState(): { level: ResourceAlert['level']; sentAt: number } {
+  try {
+    const state = JSON.parse(readFileSync(RESOURCE_ALERT_STATE_PATH, 'utf8')) as {
+      level?: ResourceAlert['level'];
+      sentAt?: number;
+    };
+    return {
+      level: state.level ?? 'normal',
+      sentAt: state.sentAt ?? 0,
+    };
+  } catch {
+    return { level: 'normal', sentAt: 0 };
+  }
+}
+
+function writeResourceAlertState(state: { level: ResourceAlert['level']; sentAt: number }) {
+  try {
+    mkdirSync('/home/merulox/.cache', { recursive: true });
+    writeFileSync(RESOURCE_ALERT_STATE_PATH, JSON.stringify(state));
+  } catch {
+    // Alert state is best-effort only; resource reporting must never fail on it.
+  }
+}
+
+function tryNotify(args: string[]): boolean {
+  try {
+    execFileSync(args[0], args.slice(1), {
+      timeout: 3000,
+      stdio: 'ignore',
+      env: {
+        ...process.env,
+        DISPLAY: process.env.DISPLAY || ':0',
+      },
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parseProcessRow(row: string, swapByPid: Map<number, number>): SystemProcess | undefined {
@@ -482,6 +615,19 @@ function readPressureValue(path: string, kind: 'some' | 'full'): number | null {
 function percent(value: number, total: number): number {
   if (!total) return 0;
   return Math.round((value / total) * 1000) / 10;
+}
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let size = value;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  const precision = size >= 10 || unit === 0 ? 0 : 1;
+  return `${size.toFixed(precision)} ${units[unit]}`;
 }
 
 function riskRank(risk: SystemProcess['risk']): number {

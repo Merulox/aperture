@@ -13,10 +13,12 @@ const AGENT_INFRA = join(HOME, 'kernel');
 const APERTURE = join(HOME, 'projects/aperture');
 const SYNTRA = join(HOME, 'syntra');
 const WEBSITE = join(HOME, 'website');
+const NAVI = join(HOME, 'projects/navi');
 const KNOWN_ROOTS = [
   join(HOME, '.local/share/boreal-outreach'),
   join(HOME, 'projects/boreal-leads'),
   APERTURE,
+  NAVI,
   AGENT_INFRA,
   SYNTRA,
   join(HOME, 'scripts'),
@@ -69,6 +71,7 @@ function briefRepo(resolvedBrief: string): string {
   if (isWithin(resolvedBrief, SYNTRA)) return SYNTRA;
   if (isWithin(resolvedBrief, APERTURE)) return APERTURE;
   if (isWithin(resolvedBrief, WEBSITE)) return WEBSITE;
+  if (isWithin(resolvedBrief, NAVI)) return NAVI;
   return dirname(resolvedBrief);
 }
 
@@ -189,7 +192,7 @@ function contextForMatch(content: string, index: number, length: number): string
   return surrounding.trim().slice(0, 400);
 }
 
-const HARD_BLOCK = /must .* authorize|authorize the required|outside .* FILES IT OWNS|not in FILES IT OWNS|MISSING_DEP|BRIEF_ERROR|NEEDS_CLARIFICATION|command not found|no such file or directory/i;
+const HARD_BLOCK = /must .* authorize|authorize the required|outside .* FILES IT OWNS|not in FILES IT OWNS|MISSING_DEP|BRIEF_ERROR|NEEDS_CLARIFICATION|command not found|no such file or directory|apply_patch rejected|writable roots are limited|outside (?:the )?(?:sandbox|writable)/i;
 const EXPECTED_LIMITATION = /live .*(verification|endpoint|api)|service (?:was|is)?\s*not running|could not (?:curl|reach|connect)|localhost|\bgit\b.*(?:prohibit|forbid|read-only|not allowed|unavailable)|\.git\/|systemctl|user scope bus|verification .*pending|unverified because|restart .*(?:not run|pending)/i;
 
 function substantiveBlockers(content: string): string | undefined {

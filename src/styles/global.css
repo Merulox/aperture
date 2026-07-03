@@ -999,6 +999,73 @@ main {
   font-style: italic;
 }
 
+.brief-inputs {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #1d1d1d;
+}
+
+.brief-input-field {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.brief-input-field input[type="text"] {
+  min-width: 0;
+  border: 1px solid #2a2a2a;
+  background: #0d0d0d;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 7px 8px;
+}
+
+.brief-input-field input[readonly] {
+  color: var(--muted);
+}
+
+.brief-confirm-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.brief-confirm-field input {
+  margin: 0;
+}
+
+.save-inputs {
+  width: fit-content;
+  border: 1px solid var(--blue);
+  background: transparent;
+  color: var(--blue);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 7px 9px;
+}
+
+.save-inputs:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.brief-input-error {
+  margin: 0;
+  color: var(--red);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
 .codex-job {
   display: grid;
   grid-template-columns: 48px auto minmax(0, 1fr) auto;
@@ -1171,6 +1238,13 @@ main {
 
   .launch-codex {
     width: 100%;
+  }
+
+  .dep-gate,
+  .brief-input-field {
+    align-items: stretch;
+    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .codex-job {
