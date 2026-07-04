@@ -4,6 +4,7 @@ import { execFile, spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { readSyntraStatusMap, syntraGateState } from '../../lib/tasks';
 
 const execFileAsync = promisify(execFile);
 const HOME = homedir();
@@ -388,11 +389,19 @@ export const POST: APIRoute = async ({ request }) => {
     return new Response('taskId, taskTitle, briefPath, and a non-empty prompt are required.', { status: 400 });
   }
 
-  const briefContent = await readFile(normalizePath(briefPath), 'utf8').catch(() => '');
+  const resolvedBriefPath = normalizePath(briefPath);
+  const briefContent = await readFile(resolvedBriefPath, 'utf8').catch(() => '');
   const executorMatch = briefContent.match(/^## EXECUTOR\s*\n\s*(codex|opencode|either)\b/m);
   const executor = executorMatch ? executorMatch[1] : 'codex';
   if (executor === 'opencode') {
     return new Response(JSON.stringify({ error: `${taskId} declares EXECUTOR: opencode — run manually: cd <workroot> && opencode` }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+  }
+  const gates = syntraGateState(briefContent, await readSyntraStatusMap());
+  if (gates.missingGates.length > 0) {
+    return new Response(JSON.stringify({ error: 'Task has unmet launch gates.', missingGates: gates.missingGates }), {
+      status: 409,
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    });
   }
 
   const jobId = crypto.randomUUID();
@@ -435,7 +444,7 @@ export const POST: APIRoute = async ({ request }) => {
     jobId,
     taskId,
     taskTitle,
-    briefPath: normalizePath(briefPath),
+    briefPath: resolvedBriefPath,
     startedAt,
     pid: child.pid ?? 0,
     logPath,
@@ -466,9 +475,8 @@ export const POST: APIRoute = async ({ request }) => {
       ...(blockedReason ? { blockedReason } : {}),
     }));
     if (status === 'done') {
-      const resolvedBrief = normalizePath(briefPath);
-      await applyCommit(resolvedBrief, logPath, taskId, taskTitle, jobId);
-      await applyRestarts(resolvedBrief, logPath);
+      await applyCommit(resolvedBriefPath, logPath, taskId, taskTitle, jobId);
+      await applyRestarts(resolvedBriefPath, logPath);
     }
   });
 
