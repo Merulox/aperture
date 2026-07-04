@@ -4,6 +4,7 @@ import { execFile, spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import { notifyJobComplete } from '../../lib/notify';
 import { readSyntraStatusMap, syntraGateState } from '../../lib/tasks';
 
 const execFileAsync = promisify(execFile);
@@ -369,6 +370,15 @@ async function writeJobRecord(jobPath: string, job: JobRecord): Promise<void> {
   await writeFile(jobPath, `${JSON.stringify(job, null, 2)}\n`, 'utf8');
 }
 
+async function latestCommit(root: string): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', root, 'log', '-1', '--format=%h %s']);
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function updateJobRecord(jobPath: string, updater: (job: JobRecord) => JobRecord): Promise<void> {
   try {
     const current = JSON.parse(await readFile(jobPath, 'utf8')) as JobRecord;
@@ -437,6 +447,15 @@ export const POST: APIRoute = async ({ request }) => {
     child.stdin?.end(`${prompt}\n`);
   } catch (error) {
     await logHandle.close().catch(() => {});
+    void notifyJobComplete({
+      taskId,
+      taskTitle,
+      status: 'failed',
+      exitCode: null,
+      commit: await latestCommit(cwd),
+      durationMs: Date.now() - Date.parse(startedAt),
+      logPath,
+    });
     return new Response(`Failed to launch Codex: ${error instanceof Error ? error.message : String(error)}`, { status: 500 });
   }
 
@@ -462,6 +481,15 @@ export const POST: APIRoute = async ({ request }) => {
       exitCode: current.exitCode,
       finishedAt: current.finishedAt ?? new Date().toISOString(),
     }));
+    void notifyJobComplete({
+      taskId,
+      taskTitle,
+      status: 'failed',
+      exitCode: null,
+      commit: await latestCommit(cwd),
+      durationMs: Date.now() - Date.parse(startedAt),
+      logPath,
+    });
   });
 
   child.once('exit', async (exitCode) => {
@@ -478,6 +506,16 @@ export const POST: APIRoute = async ({ request }) => {
       await applyCommit(resolvedBriefPath, logPath, taskId, taskTitle, jobId);
       await applyRestarts(resolvedBriefPath, logPath);
     }
+    void notifyJobComplete({
+      taskId,
+      taskTitle,
+      status,
+      exitCode,
+      blockedReason,
+      commit: await latestCommit(cwd),
+      durationMs: Date.now() - Date.parse(startedAt),
+      logPath,
+    });
   });
 
   child.unref();
