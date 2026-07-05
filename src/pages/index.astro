@@ -57,6 +57,12 @@ function alertTone(level: string): string {
   return 'green';
 }
 
+function killHintTone(level: string): string {
+  if (level === 'safe') return 'green';
+  if (level === 'avoid') return 'red';
+  return 'yellow';
+}
+
 function formatMoney(value: number): string {
   return `$${value.toFixed(2)}`;
 }
@@ -97,6 +103,7 @@ function ageInDays(timestamp: string): number {
       <div class="meta">
         <a href="/tasks" class="nav-link">tasks</a>
         <a href="/boreal" class="nav-link">boréal</a>
+        <a href="/design" class="nav-link">design</a>
         <span class={`badge badge-${statusTone}`}>{health.status}</span>
         <span>tick {health.tick}</span>
         <span>{health.updated}</span>
@@ -249,6 +256,17 @@ function ageInDays(timestamp: string): number {
                       ) : (
                         <span class="muted">locked</span>
                       )}
+                      <details class="process-details">
+                        <summary>details</summary>
+                        <div class="process-detail-grid">
+                          <span>cmd</span><code>{process.args}</code>
+                          <span>cwd</span><code>{process.cwd || 'unknown'}</code>
+                          <span>tty</span><code>{process.tty || 'none'}</code>
+                          <span>terminal</span><code>{process.terminal?.label || 'none detected'}</code>
+                          <span>parents</span><code>{process.parentChain.map((parent) => `${parent.pid}:${parent.command}`).join(' <- ') || 'none'}</code>
+                          <span>kill</span><span class={`badge badge-${killHintTone(process.killHint.level)}`}>{process.killHint.label}: {process.killHint.reason}</span>
+                        </div>
+                      </details>
                     </div>
                   ))
                 ) : (
@@ -271,6 +289,17 @@ function ageInDays(timestamp: string): number {
                   <span>{formatBytes(process.swapBytes)} swap</span>
                   <span>{process.cpu.toFixed(0)}% cpu</span>
                   <span class={`badge badge-${processTone(process.risk)}`}>{process.risk}</span>
+                  <details class="process-details">
+                    <summary>details</summary>
+                    <div class="process-detail-grid">
+                      <span>cmd</span><code>{process.args}</code>
+                      <span>cwd</span><code>{process.cwd || 'unknown'}</code>
+                      <span>tty</span><code>{process.tty || 'none'}</code>
+                      <span>terminal</span><code>{process.terminal?.label || 'none detected'}</code>
+                      <span>parents</span><code>{process.parentChain.map((parent) => `${parent.pid}:${parent.command}`).join(' <- ') || 'none'}</code>
+                      <span>kill</span><span class={`badge badge-${killHintTone(process.killHint.level)}`}>{process.killHint.label}: {process.killHint.reason}</span>
+                    </div>
+                  </details>
                 </div>
               ))}
             </div>
@@ -394,6 +423,17 @@ function ageInDays(timestamp: string): number {
                 ) : (
                   <span class="muted">locked</span>
                 )}
+                <details class="process-details">
+                  <summary>details</summary>
+                  <div class="process-detail-grid">
+                    <span>cmd</span><code>{process.args}</code>
+                    <span>cwd</span><code>{process.cwd || 'unknown'}</code>
+                    <span>tty</span><code>{process.tty || 'none'}</code>
+                    <span>terminal</span><code>{process.terminal?.label || 'none detected'}</code>
+                    <span>parents</span><code>{process.parentChain.map((parent) => `${parent.pid}:${parent.command}`).join(' <- ') || 'none'}</code>
+                    <span>kill</span><span class={`badge badge-${killHintTone(process.killHint.level)}`}>{process.killHint.label}: {process.killHint.reason}</span>
+                  </div>
+                </details>
               </div>
             ))}
           </div>
@@ -445,6 +485,11 @@ function ageInDays(timestamp: string): number {
       if (level === 'warning') return 'yellow';
       return 'green';
     };
+    const killHintToneLive = (level) => {
+      if (level === 'safe') return 'green';
+      if (level === 'avoid') return 'red';
+      return 'yellow';
+    };
     const escapeHtml = (value) =>
       String(value ?? '').replace(/[&<>"']/g, (char) => ({
         '&': '&amp;',
@@ -470,6 +515,24 @@ function ageInDays(timestamp: string): number {
     const renderManageAction = (process) => process.manageable
       ? `<button class="process-kill" type="button" data-kill-pid="${process.pid}">term</button>`
       : '<span class="muted">locked</span>';
+    const renderProcessDetails = (process) => {
+      const parents = (process.parentChain ?? []).map((parent) => `${parent.pid}:${parent.command}`).join(' <- ') || 'none';
+      const terminal = process.terminal?.label ?? 'none detected';
+      const killHint = process.killHint ?? { level: 'caution', label: 'inspect', reason: 'no hint available' };
+      return `
+        <details class="process-details">
+          <summary>details</summary>
+          <div class="process-detail-grid">
+            <span>cmd</span><code>${escapeHtml(process.args)}</code>
+            <span>cwd</span><code>${escapeHtml(process.cwd || 'unknown')}</code>
+            <span>tty</span><code>${escapeHtml(process.tty || 'none')}</code>
+            <span>terminal</span><code>${escapeHtml(terminal)}</code>
+            <span>parents</span><code>${escapeHtml(parents)}</code>
+            <span>kill</span><span class="badge badge-${killHintToneLive(killHint.level)}">${escapeHtml(killHint.label)}: ${escapeHtml(killHint.reason)}</span>
+          </div>
+        </details>
+      `;
+    };
     const renderProcessRow = (process, compact = false) => `
       <div class="process-row ${compact ? 'process-row-compact' : ''}" data-pid="${process.pid}">
         <span class="process-pid">${process.pid}</span>
@@ -479,6 +542,7 @@ function ageInDays(timestamp: string): number {
         <span>${Number(process.cpu).toFixed(0)}% cpu</span>
         <span class="badge badge-${processToneLive(process.risk)}">${escapeHtml(compact ? process.risk : process.reason)}</span>
         ${compact ? '' : renderManageAction(process)}
+        ${renderProcessDetails(process)}
       </div>
     `;
     const renderSwapGroup = (group) => `
@@ -496,6 +560,7 @@ function ageInDays(timestamp: string): number {
         <span>${formatBytesLive(process.swapBytes)}</span>
         <span class="muted">${formatBytesLive(process.rssBytes)} rss</span>
         ${renderManageAction(process)}
+        ${renderProcessDetails(process)}
       </div>
     `;
     const setHtml = (selector, html) => {

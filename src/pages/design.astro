@@ -1,0 +1,186 @@
+---
+import '../styles/global.css';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { readdir, readFile } from 'node:fs/promises';
+
+type Screenshot = {
+  key: string;
+  url: string;
+  file: string;
+  imageUrl?: string;
+};
+
+type Manifest = {
+  run: string | null;
+  timestamp: string | null;
+  screenshots: Screenshot[];
+};
+
+const manifest: Manifest = await latestManifest();
+
+function labelFor(key: string): string {
+  return key.split('-').map((part) => part[0]?.toUpperCase() + part.slice(1)).join(' ');
+}
+
+async function latestManifest(): Promise<Manifest> {
+  const screenshotsDir = join(homedir(), 'syntra/docs/design/screenshots');
+  const entries = await readdir(screenshotsDir, { withFileTypes: true }).catch(() => []);
+  const runs = entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort((a, b) => b.localeCompare(a));
+
+  for (const run of runs) {
+    try {
+      const data = JSON.parse(await readFile(join(screenshotsDir, run, 'manifest.json'), 'utf8')) as Manifest;
+      return {
+        ...data,
+        screenshots: Array.isArray(data.screenshots)
+          ? data.screenshots.map((item) => ({
+              ...item,
+              imageUrl: `/api/design-image/${encodeURIComponent(run)}/${encodeURIComponent(item.file)}`,
+            }))
+          : [],
+      };
+    } catch {
+      // Try the next newest run.
+    }
+  }
+
+  return { run: null, timestamp: null, screenshots: [] };
+}
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Design · Aperture</title>
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <div class="brand">aperture</div>
+      <div class="meta">
+        <a href="/" class="nav-link">dashboard</a>
+        <a href="/tasks" class="nav-link">tasks</a>
+        <a href="/boreal" class="nav-link">boréal</a>
+        <a href="/design" class="nav-link">refresh</a>
+      </div>
+    </header>
+
+    <section class="panel panel-wide" aria-labelledby="design-heading">
+      <div class="section-head">
+        <div>
+          <div class="label" id="design-heading">design screenshots</div>
+          <h1 class="design-title">SYNTRA</h1>
+        </div>
+        <div class="section-head-right">
+          {manifest.run ? <span class="badge badge-blue">{manifest.run}</span> : <span class="badge badge-yellow">no run</span>}
+          {manifest.timestamp ? <span class="badge badge-muted">{manifest.timestamp}</span> : null}
+        </div>
+      </div>
+
+      {manifest.screenshots.length > 0 ? (
+        <div class="design-grid">
+          {manifest.screenshots.map((shot) => (
+            <a class="design-shot" href={shot.imageUrl} target="_blank" rel="noreferrer">
+              <img src={shot.imageUrl} alt={`${labelFor(shot.key)} screenshot`} width="1280" height="900" loading="lazy" />
+              <span class="design-shot-meta">
+                <strong>{labelFor(shot.key)}</strong>
+                <span>{shot.url}</span>
+              </span>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <p class="state-entry">No screenshot manifest found.</p>
+      )}
+    </section>
+  </main>
+
+  <style>
+    .design-title {
+      margin: 0;
+      color: var(--blue);
+      font-size: 1.35rem;
+      line-height: 1;
+    }
+
+    .badge-blue {
+      color: var(--blue);
+    }
+
+    .design-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }
+
+    .design-shot {
+      display: grid;
+      gap: 8px;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .design-shot:hover strong,
+    .design-shot:focus-visible strong {
+      color: var(--blue);
+    }
+
+    .design-shot img {
+      width: 100%;
+      aspect-ratio: 1280 / 900;
+      display: block;
+      border: 1px solid #262626;
+      background: #050505;
+      object-fit: cover;
+    }
+
+    .design-shot-meta {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 0.76rem;
+      line-height: 1.4;
+    }
+
+    .design-shot-meta span {
+      color: var(--muted);
+      overflow-wrap: anywhere;
+      text-align: right;
+    }
+
+    @media (max-width: 720px) {
+      .design-shot-meta {
+        display: grid;
+        gap: 3px;
+      }
+
+      .design-shot-meta span {
+        text-align: left;
+      }
+    }
+  </style>
+  <script define:vars={{ currentRun: manifest.run ?? '' }}>
+    async function pollDesignScreenshots() {
+      try {
+        const response = await fetch('/api/design-screenshots', { cache: 'no-store' });
+        if (!response.ok) return;
+
+        const payload = await response.json();
+        if (payload.run && payload.run !== currentRun) {
+          location.reload();
+        }
+      } catch {
+        // Keep polling; the screenshot service may be between runs.
+      }
+    }
+
+    setInterval(pollDesignScreenshots, 15_000);
+  </script>
+</body>
+</html>
