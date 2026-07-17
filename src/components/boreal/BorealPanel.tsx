@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Nav } from '../Nav';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -861,14 +862,9 @@ export function BorealPanel() {
 
   return (
     <div className="boreal-page">
-      <header className="topbar">
-        <div className="brand">aperture</div>
-        <div className="meta">
-          <a href="/" className="nav-link">home</a>
-          <a href="/tasks" className="nav-link">tasks</a>
-          <span className="badge badge-green">boréal</span>
-        </div>
-      </header>
+      <Nav page="boreal">
+        <span className="badge badge-green">boréal</span>
+      </Nav>
 
       <div className="grid">
         <section className="panel panel-wide" aria-labelledby="clients-heading">

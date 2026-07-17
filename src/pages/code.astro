@@ -1,0 +1,15 @@
+---
+import AppLayout from '../layouts/AppLayout.astro';
+import CodePanel from '../components/code/CodePanel.astro';
+import CodeGraph from '../components/code/CodeGraph';
+import { getGitnexusStatus } from '../lib/gitnexus';
+
+const status = await getGitnexusStatus();
+---
+<AppLayout title="CODE" page="code" subtitle="code">
+  <Fragment slot="topbar-extra">
+    <span>updated {status.generatedAt}</span>
+  </Fragment>
+  <CodePanel initial={status} />
+  <CodeGraph client:only="react" />
+</AppLayout>

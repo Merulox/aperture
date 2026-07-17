@@ -1,5 +1,5 @@
 import { execFileSync, execSync } from 'node:child_process';
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
 const HEALTH_PATH = '/home/merulox/obsidian/knowledge/projects/genesis/health.json';
@@ -144,11 +144,38 @@ export type SystemProcess = {
   rssBytes: number;
   swapBytes: number;
   elapsed: string;
+  tty: string;
   command: string;
   args: string;
+  cwd: string;
+  parentChain: ProcessLink[];
+  terminal: TerminalContext | null;
+  killHint: KillHint;
   risk: 'critical' | 'warning' | 'normal';
   reason: string;
   manageable: boolean;
+};
+
+export type ProcessLink = {
+  pid: number;
+  command: string;
+  args: string;
+};
+
+export type TerminalContext = {
+  type: 'tmux' | 'tty';
+  label: string;
+  session?: string;
+  window?: string;
+  pane?: string;
+  cwd?: string;
+  command?: string;
+};
+
+export type KillHint = {
+  level: 'safe' | 'caution' | 'avoid';
+  label: string;
+  reason: string;
 };
 
 export type SwapGroup = {
@@ -255,15 +282,16 @@ export function readProcessSnapshot(): SystemProcess[] {
     const swapByPid = readSwapByPid();
     const out = execFileSync(
       'ps',
-      ['-eo', 'pid,ppid,user,stat,%cpu,%mem,rss,etime,comm,args', '--sort=-rss'],
+      ['-eo', 'pid,ppid,user,stat,%cpu,%mem,rss,etime,tty,comm,args', '--sort=-rss'],
       { encoding: 'utf8', timeout: 3000, maxBuffer: 2 * 1024 * 1024 },
     );
 
-    return out
+    const processes = out
       .split('\n')
       .slice(1)
       .map((row) => parseProcessRow(row, swapByPid))
       .filter((process): process is SystemProcess => process !== undefined);
+    return enrichProcessSnapshot(processes);
   } catch {
     return [];
   }
@@ -437,11 +465,11 @@ function tryNotify(args: string[]): boolean {
 
 function parseProcessRow(row: string, swapByPid: Map<number, number>): SystemProcess | undefined {
   const match = row.trim().match(
-    /^(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(\S+)\s+(\S+)\s*(.*)$/,
+    /^(\d+)\s+(\d+)\s+(\S+)\s+(\S+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s*(.*)$/,
   );
   if (!match) return undefined;
 
-  const [, pidText, ppidText, user, stat, cpuText, memText, rssText, elapsed, command, args] = match;
+  const [, pidText, ppidText, user, stat, cpuText, memText, rssText, elapsed, tty, command, args] = match;
   const pid = Number(pidText);
   const ppid = Number(ppidText);
   const cpu = Number(cpuText);
@@ -489,11 +517,217 @@ function parseProcessRow(row: string, swapByPid: Map<number, number>): SystemPro
     rssBytes,
     swapBytes,
     elapsed,
+    tty,
     command,
     args: fullArgs,
+    cwd: readProcessCwd(pid),
+    parentChain: [],
+    terminal: null,
+    killHint: { level: 'caution', label: 'inspect', reason: 'process context still loading' },
     risk,
     reason,
     manageable: user === 'merulox' && pid !== process.pid,
+  };
+}
+
+function enrichProcessSnapshot(processes: SystemProcess[]): SystemProcess[] {
+  const byPid = new Map(processes.map((process) => [process.pid, process]));
+  const tmuxPanes = readTmuxPanes();
+
+  for (const process of processes) {
+    process.parentChain = readParentChain(process, byPid);
+    process.terminal = findTerminalContext(process, byPid, tmuxPanes);
+    process.killHint = classifyKillHint(process);
+  }
+
+  return processes;
+}
+
+function readProcessCwd(pid: number): string {
+  try {
+    return readlinkSync(`/proc/${pid}/cwd`);
+  } catch {
+    return '';
+  }
+}
+
+function readParentChain(process: SystemProcess, byPid: Map<number, SystemProcess>): ProcessLink[] {
+  const chain: ProcessLink[] = [];
+  const seen = new Set<number>([process.pid]);
+  let next = byPid.get(process.ppid);
+
+  while (next && !seen.has(next.pid) && chain.length < 8) {
+    chain.push({ pid: next.pid, command: next.command, args: next.args });
+    seen.add(next.pid);
+    next = byPid.get(next.ppid);
+  }
+
+  return chain;
+}
+
+type TmuxPane = {
+  panePid: number;
+  session: string;
+  window: string;
+  pane: string;
+  cwd: string;
+  command: string;
+  title: string;
+};
+
+function readTmuxPanes(): TmuxPane[] {
+  try {
+    const runtimeDir = process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid?.() ?? 1000}`;
+    const out = execFileSync(
+      'tmux',
+      [
+        'list-panes',
+        '-a',
+        '-F',
+        '#{pane_pid}\t#{session_name}\t#{window_index}:#{window_name}\t#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{pane_title}',
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 1500,
+        maxBuffer: 1024 * 1024,
+        env: {
+          ...process.env,
+          XDG_RUNTIME_DIR: runtimeDir,
+          TMUX_TMPDIR: process.env.TMUX_TMPDIR || runtimeDir,
+        },
+      },
+    );
+    return out
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [panePid, session, window, pane, cwd, command, title] = line.split('\t');
+        return {
+          panePid: Number(panePid),
+          session,
+          window,
+          pane,
+          cwd,
+          command,
+          title,
+        };
+      })
+      .filter((pane) => Number.isInteger(pane.panePid));
+  } catch {
+    return [];
+  }
+}
+
+function findTerminalContext(
+  process: SystemProcess,
+  byPid: Map<number, SystemProcess>,
+  panes: TmuxPane[],
+): TerminalContext | null {
+  const ancestry = new Set([process.pid, ...process.parentChain.map((parent) => parent.pid)]);
+  const pane = panes.find((candidate) => ancestry.has(candidate.panePid));
+  if (pane) {
+    return {
+      type: 'tmux',
+      label: `${pane.session}:${pane.window}.${pane.pane}`,
+      session: pane.session,
+      window: pane.window,
+      pane: pane.pane,
+      cwd: pane.cwd,
+      command: pane.command,
+    };
+  }
+
+  if (process.tty && process.tty !== '?') {
+    const terminalParent = process.parentChain.find((parent) =>
+      /(wezterm|kitty|alacritty|konsole|gnome-terminal|xterm|tmux|zsh|bash|fish)$/i.test(parent.command),
+    );
+    return {
+      type: 'tty',
+      label: terminalParent ? `${process.tty} via ${terminalParent.command}` : process.tty,
+      command: terminalParent?.command,
+    };
+  }
+
+  const directParent = byPid.get(process.ppid);
+  if (directParent && /(tmux|zsh|bash|fish)$/i.test(directParent.command)) {
+    return {
+      type: 'tty',
+      label: `shell child of ${directParent.command}`,
+      command: directParent.command,
+    };
+  }
+
+  return null;
+}
+
+function classifyKillHint(process: SystemProcess): KillHint {
+  const command = process.command.toLowerCase().replace(/^\[|\]$/g, '');
+  const args = process.args.toLowerCase();
+  const text = `${command} ${args}`;
+  const protectedCommands = new Set([
+    'systemd',
+    'dbus-broker',
+    'dbus-daemon',
+    'pipewire',
+    'wireplumber',
+    'x',
+    'xorg',
+    'xwayland',
+    'cloudflared',
+    'qdrant',
+    'ollama',
+    'dockerd',
+    'docker-proxy',
+    'containerd',
+    'networkmanager',
+  ]);
+  const protectedArgs = [
+    'calibre-server',
+    'aperture',
+    'command-center',
+    'missed-call-bot',
+    'sms-webhook',
+    'telegram-commander',
+    'victorique-bot',
+    'vicinae-server',
+  ];
+
+  if (process.user !== 'merulox' || protectedCommands.has(command) || protectedArgs.some((needle) => args.includes(needle))) {
+    return {
+      level: 'avoid',
+      label: 'avoid',
+      reason: process.user !== 'merulox' ? 'not owned by your user' : 'core service or shared daemon',
+    };
+  }
+
+  if (process.terminal?.type === 'tty' && /(zsh|bash|fish|tmux)$/i.test(process.command)) {
+    return {
+      level: 'caution',
+      label: 'shell',
+      reason: 'interactive shell; close the matching terminal or tmux pane if it is stale',
+    };
+  }
+
+  if (process.terminal?.type === 'tmux') {
+    return {
+      level: 'caution',
+      label: 'tmux',
+      reason: 'belongs to a tmux pane; kill the pane/session if that work is stale',
+    };
+  }
+
+  if (/(codex|claude|opencode|npm|node|python|astro|vite|electron|brave|spotify|telegram|obs|wezterm)/.test(text)) {
+    return {
+      level: 'caution',
+      label: 'review',
+      reason: 'user app or dev process; safe only if you recognize the window/task',
+    };
+  }
+
+  return {
+    level: process.manageable ? 'safe' : 'avoid',
+    label: process.manageable ? 'likely safe' : 'locked',
+    reason: process.manageable ? 'owned by your user and not classified as infrastructure' : 'not manageable from Aperture',
   };
 }
 

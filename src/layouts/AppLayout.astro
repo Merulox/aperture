@@ -1,0 +1,38 @@
+---
+import '../styles/global.css';
+import { NAV } from '../lib/nav';
+
+interface Props {
+  title: string;
+  page: string;
+  subtitle?: string;
+}
+
+const { title, page, subtitle } = Astro.props;
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title} · Aperture</title>
+</head>
+<body>
+  <main>
+    <header class="topbar">
+      <div class="brand">aperture{subtitle ? ` / ${subtitle}` : ''}</div>
+      <div class="meta">
+        {NAV.map(({ id, href, label, external }) => (
+          page === id
+            ? <span class="nav-current">{label}</span>
+            : external
+              ? <a href={href} class="nav-link" target="_blank" rel="noopener">{label}</a>
+              : <a href={href} class="nav-link">{label}</a>
+        ))}
+        <slot name="topbar-extra" />
+      </div>
+    </header>
+    <slot />
+  </main>
+</body>
+</html>

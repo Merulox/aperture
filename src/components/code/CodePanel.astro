@@ -1,0 +1,330 @@
+---
+import type { GitnexusStatus, RepoStatus, RepoSync } from '../../lib/gitnexus';
+import { EXPLORER_URL } from '../../lib/gitnexus';
+
+interface Props {
+  initial: GitnexusStatus;
+}
+
+const { initial } = Astro.props;
+
+function freshness(repo: RepoStatus): { tone: string; text: string } {
+  if (repo.commitsBehind === null) return { tone: 'muted', text: 'index unknown' };
+  if (repo.commitsBehind === 0) return { tone: 'green', text: 'index fresh' };
+  return { tone: 'yellow', text: `index ${repo.commitsBehind} behind` };
+}
+
+function syncBadges(sync: RepoSync | null): Array<{ tone: string; text: string }> {
+  if (!sync) return [{ tone: 'muted', text: 'untracked' }];
+  const badges: Array<{ tone: string; text: string }> = [];
+  if (!sync.remoteUrl) badges.push({ tone: 'muted', text: 'no remote' });
+  else {
+    if (sync.behind > 0) badges.push({ tone: 'red', text: `↓${sync.behind} behind` });
+    if (sync.ahead > 0) badges.push({ tone: 'yellow', text: `↑${sync.ahead} unpushed` });
+    if (sync.behind === 0 && sync.ahead === 0) badges.push({ tone: 'green', text: 'synced' });
+  }
+  if (sync.dirtyCount > 0) badges.push({ tone: 'orange', text: `${sync.dirtyCount} dirty` });
+  return badges;
+}
+
+function ago(iso: string): string {
+  const minutes = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h ago`;
+  return `${Math.round(minutes / 1440)}d ago`;
+}
+---
+<section class="panel panel-wide code-panel" aria-labelledby="code-heading" data-code-panel>
+  <div class="section-head">
+    <a class="label" id="code-heading" href="/code">code graph</a>
+    <span class="section-head-right">
+      <button class="btn-sm" data-action="commit-all">commit all</button>
+      <span class={`badge badge-${initial.serve === 'up' ? 'green' : 'red'}`} data-serve-badge>serve {initial.serve}</span>
+      <a class="badge badge-blue" href={EXPLORER_URL} target="_blank" rel="noopener">explorer ↗</a>
+    </span>
+  </div>
+  <div class="code-repos" data-code-repos>
+    {initial.repos.map((repo) => {
+      const fresh = freshness(repo);
+      const sync = syncBadges(repo.sync);
+      return (
+        <article class="code-repo">
+          <div class="code-repo-head">
+            <span class="code-repo-name">{repo.name}</span>
+            <span class={`badge badge-${fresh.tone}`}>{fresh.text}</span>
+          </div>
+          <div class="code-repo-path">{repo.path}</div>
+          <div class="code-sync">
+            {repo.sync && <span class="code-branch">{repo.sync.branch}</span>}
+            {sync.map((badge) => <span class={`badge badge-${badge.tone}`}>{badge.text}</span>)}
+          </div>
+          <div class="code-stats">
+            {repo.stats.files} files · {repo.stats.nodes} nodes · {repo.stats.edges} edges · {repo.stats.communities} clusters · {repo.stats.processes} flows
+          </div>
+          <div class="code-stats">indexed {ago(repo.indexedAt)}</div>
+          <div class="code-actions">
+            {repo.sync && repo.sync.dirtyCount > 0 && (
+              <button class="btn-sm" data-action="diff" data-repo={repo.name}>diff</button>
+            )}
+            {repo.sync && repo.sync.dirtyCount > 0 && (
+              <button class="btn-sm-primary" data-action="commit" data-repo={repo.name}>commit</button>
+            )}
+            {repo.sync && repo.sync.remoteUrl && repo.sync.ahead > 0 && (
+              <button class="btn-sm" data-action="unpushed" data-repo={repo.name}>unpushed</button>
+            )}
+            {repo.sync && repo.sync.remoteUrl && repo.sync.ahead > 0 && (
+              <button class="btn-sm-primary" data-action="push" data-repo={repo.name}>push ↑{repo.sync.ahead}</button>
+            )}
+          </div>
+          <pre class="code-diff" data-diff hidden></pre>
+        </article>
+      );
+    })}
+    {initial.repos.length === 0 && <p class="state-entry">— no indexed repos —</p>}
+  </div>
+  <div class="code-footer" data-code-footer>
+    next reindex: {initial.nextReindex ?? 'timer not scheduled'}
+  </div>
+  <details class="code-legend">
+    <summary>legend</summary>
+    <div class="code-legend-grid">
+      <div><span class="badge badge-green">synced</span> local branch matches its GitHub remote</div>
+      <div><span class="badge badge-yellow">↑N unpushed</span> N local commits the remote doesn't have — push to sync</div>
+      <div><span class="badge badge-red">↓N behind</span> N remote commits you don't have locally — pull to sync</div>
+      <div><span class="badge badge-orange">N dirty</span> N files with uncommitted changes (edits/new files, not commits yet) — commit first, then push</div>
+      <div><span class="badge badge-muted">no remote</span> repo exists locally but has no GitHub remote</div>
+      <div><span class="badge badge-muted">untracked</span> not watched by git-tracker (no git repo)</div>
+      <div><span class="badge badge-green">index fresh</span> GitNexus code graph matches local HEAD</div>
+      <div><span class="badge badge-yellow">index N behind</span> code graph is N commits older than local HEAD — refreshes nightly at 03:00</div>
+    </div>
+    <div class="code-legend-grid">
+      <div><span class="dl-add">+ / A</span> added line / added file</div>
+      <div><span class="dl-del">− / D</span> removed line / deleted file</div>
+      <div><span class="dl-mod">M</span> modified file (left letter = staged, right = unstaged)</div>
+      <div><span class="dl-untracked">??</span> untracked file (never committed)</div>
+      <div><span class="dl-hunk">@@</span> hunk location in file</div>
+    </div>
+  </details>
+</section>
+
+<script>
+  const escapeHtml = (value: unknown) => String(value).replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;',
+  }[character] ?? character));
+
+  function freshness(repo: any): { tone: string; text: string } {
+    if (repo.commitsBehind === null) return { tone: 'muted', text: 'index unknown' };
+    if (repo.commitsBehind === 0) return { tone: 'green', text: 'index fresh' };
+    return { tone: 'yellow', text: `index ${repo.commitsBehind} behind` };
+  }
+
+  function syncBadges(sync: any): Array<{ tone: string; text: string }> {
+    if (!sync) return [{ tone: 'muted', text: 'untracked' }];
+    const badges: Array<{ tone: string; text: string }> = [];
+    if (!sync.remoteUrl) badges.push({ tone: 'muted', text: 'no remote' });
+    else {
+      if (sync.behind > 0) badges.push({ tone: 'red', text: `↓${sync.behind} behind` });
+      if (sync.ahead > 0) badges.push({ tone: 'yellow', text: `↑${sync.ahead} unpushed` });
+      if (sync.behind === 0 && sync.ahead === 0) badges.push({ tone: 'green', text: 'synced' });
+    }
+    if (sync.dirtyCount > 0) badges.push({ tone: 'orange', text: `${sync.dirtyCount} dirty` });
+    return badges;
+  }
+
+  function ago(iso: string): string {
+    const minutes = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+    if (minutes < 60) return `${minutes}m ago`;
+    if (minutes < 1440) return `${Math.round(minutes / 60)}h ago`;
+    return `${Math.round(minutes / 1440)}d ago`;
+  }
+
+  function render(panel: HTMLElement, data: any) {
+    const badge = panel.querySelector<HTMLElement>('[data-serve-badge]')!;
+    badge.textContent = `serve ${data.serve}`;
+    badge.className = `badge badge-${data.serve === 'up' ? 'green' : 'red'}`;
+    panel.querySelector<HTMLElement>('[data-code-repos]')!.innerHTML = data.repos.length
+      ? data.repos.map((repo: any) => {
+          const fresh = freshness(repo);
+          const sync = syncBadges(repo.sync);
+          return `
+            <article class="code-repo">
+              <div class="code-repo-head">
+                <span class="code-repo-name">${escapeHtml(repo.name)}</span>
+                <span class="badge badge-${fresh.tone}">${escapeHtml(fresh.text)}</span>
+              </div>
+              <div class="code-repo-path">${escapeHtml(repo.path)}</div>
+              <div class="code-sync">
+                ${repo.sync ? `<span class="code-branch">${escapeHtml(repo.sync.branch)}</span>` : ''}
+                ${sync.map((badge) => `<span class="badge badge-${badge.tone}">${escapeHtml(badge.text)}</span>`).join('')}
+              </div>
+              <div class="code-stats">${repo.stats.files} files · ${repo.stats.nodes} nodes · ${repo.stats.edges} edges · ${repo.stats.communities} clusters · ${repo.stats.processes} flows</div>
+              <div class="code-stats">indexed ${escapeHtml(ago(repo.indexedAt))}</div>
+              <div class="code-actions">
+                ${repo.sync && repo.sync.dirtyCount > 0 ? `<button class="btn-sm" data-action="diff" data-repo="${escapeHtml(repo.name)}">diff</button>` : ''}
+                ${repo.sync && repo.sync.dirtyCount > 0 ? `<button class="btn-sm-primary" data-action="commit" data-repo="${escapeHtml(repo.name)}">commit</button>` : ''}
+                ${repo.sync && repo.sync.remoteUrl && repo.sync.ahead > 0 ? `<button class="btn-sm" data-action="unpushed" data-repo="${escapeHtml(repo.name)}">unpushed</button>` : ''}
+                ${repo.sync && repo.sync.remoteUrl && repo.sync.ahead > 0 ? `<button class="btn-sm-primary" data-action="push" data-repo="${escapeHtml(repo.name)}">push ↑${repo.sync.ahead}</button>` : ''}
+              </div>
+              <pre class="code-diff" data-diff hidden></pre>
+            </article>`;
+        }).join('')
+      : '<p class="state-entry">— no indexed repos —</p>';
+    panel.querySelector<HTMLElement>('[data-code-footer]')!.textContent =
+      `next reindex: ${data.nextReindex ?? 'timer not scheduled'}`;
+  }
+
+  async function refreshCode() {
+    if (document.hidden) return;
+    const response = await fetch('/api/gitnexus', { cache: 'no-store' });
+    if (!response.ok) throw new Error(await response.text());
+    const data = await response.json();
+    document.querySelectorAll<HTMLElement>('[data-code-panel]').forEach((panel) => {
+      // don't wipe an open diff drawer on the 60s tick
+      if (panel.querySelector('[data-diff]:not([hidden])')) return;
+      render(panel, data);
+    });
+  }
+
+  // classify each diff/status line so the drawer reads at a glance
+  function diffLineClass(line: string): string {
+    if (/^(diff --git|index |--- |\+\+\+ )/.test(line)) return 'dl-meta';
+    if (line.startsWith('@@')) return 'dl-hunk';
+    if (line.startsWith('+')) return 'dl-add';
+    if (line.startsWith('-')) return 'dl-del';
+    if (/^(changed files:|unpushed commits:)/.test(line)) return 'dl-head';
+    if (/^[ MADRCU?]{2} \S/.test(line)) {
+      const code = line.slice(0, 2);
+      if (code.includes('?')) return 'dl-untracked';
+      if (code.includes('D')) return 'dl-del';
+      if (code.includes('A')) return 'dl-add';
+      return 'dl-mod';
+    }
+    return '';
+  }
+
+  function renderDiff(drawer: HTMLElement, text: string) {
+    drawer.innerHTML = text.split('\n').map((line) => {
+      const cls = diffLineClass(line);
+      const safe = escapeHtml(line);
+      return cls ? `<span class="${cls}">${safe}</span>` : safe;
+    }).join('\n');
+  }
+
+  async function showDiff(button: HTMLButtonElement, scope: string) {
+    const drawer = button.closest('.code-repo')!.querySelector<HTMLElement>('[data-diff]')!;
+    if (!drawer.hidden && drawer.dataset.scope === scope) {
+      drawer.hidden = true;
+      return;
+    }
+    drawer.hidden = false;
+    drawer.dataset.scope = scope;
+    drawer.textContent = 'loading…';
+    const repo = button.dataset.repo!;
+    const response = await fetch(`/api/git-diff?repo=${encodeURIComponent(repo)}&scope=${scope}`, { cache: 'no-store' });
+    const data = await response.json();
+    if (data.diff) renderDiff(drawer, data.diff);
+    else drawer.textContent = data.error ?? '— empty —';
+  }
+
+  function defaultCommitMessage(): string {
+    const now = new Date();
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return `wip: aperture sync ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  }
+
+  async function commitOne(repo: string, message: string): Promise<string | null> {
+    const response = await fetch('/api/git-commit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ repo, message }),
+    });
+    const data = await response.json();
+    return response.ok ? null : (data.error ?? 'commit failed');
+  }
+
+  async function commitRepo(button: HTMLButtonElement) {
+    const repo = button.dataset.repo!;
+    const message = window.prompt(`commit message for ${repo} (stages all changes):`, defaultCommitMessage());
+    if (!message || !message.trim()) return;
+    button.disabled = true;
+    button.textContent = 'committing…';
+    try {
+      const error = await commitOne(repo, message.trim());
+      button.textContent = error ? 'failed' : 'committed ✓';
+      if (error) window.alert(error);
+      document.querySelectorAll<HTMLElement>('[data-diff]').forEach((drawer) => { drawer.hidden = true; });
+      window.setTimeout(() => void refreshCode().catch(console.error), 2000);
+    } catch (error) {
+      button.textContent = 'failed';
+      window.alert(String(error));
+    }
+  }
+
+  async function commitAll(button: HTMLButtonElement) {
+    const response = await fetch('/api/gitnexus', { cache: 'no-store' });
+    const data = await response.json();
+    // skip repos behind their remote — committing there stacks a divergence to untangle
+    const targets = data.repos.filter((repo: any) => repo.sync && repo.sync.dirtyCount > 0 && repo.sync.behind === 0);
+    const skipped = data.repos.filter((repo: any) => repo.sync && repo.sync.dirtyCount > 0 && repo.sync.behind > 0);
+    if (targets.length === 0) {
+      window.alert('nothing dirty to commit');
+      return;
+    }
+    const names = targets.map((repo: any) => repo.name).join(', ');
+    const note = skipped.length ? `\n(skipping ${skipped.map((r: any) => r.name).join(', ')} — behind remote)` : '';
+    if (!window.confirm(`commit all changes in: ${names}?${note}`)) return;
+    button.disabled = true;
+    const message = defaultCommitMessage();
+    const failures: string[] = [];
+    for (const repo of targets) {
+      button.textContent = `committing ${repo.name}…`;
+      const error = await commitOne(repo.name, message).catch((err) => String(err));
+      if (error) failures.push(`${repo.name}: ${error}`);
+    }
+    button.disabled = false;
+    button.textContent = failures.length ? 'commit all (some failed)' : 'commit all ✓';
+    if (failures.length) window.alert(failures.join('\n'));
+    document.querySelectorAll<HTMLElement>('[data-diff]').forEach((drawer) => { drawer.hidden = true; });
+    window.setTimeout(() => void refreshCode().catch(console.error), 2000);
+  }
+
+  async function pushRepo(button: HTMLButtonElement) {
+    const repo = button.dataset.repo!;
+    if (!window.confirm(`git push ${repo}?`)) return;
+    button.disabled = true;
+    button.textContent = 'pushing…';
+    try {
+      const response = await fetch('/api/git-push', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ repo }),
+      });
+      const data = await response.json();
+      button.textContent = response.ok ? 'pushed ✓' : 'failed';
+      if (!response.ok) window.alert(data.error ?? 'push failed');
+      document.querySelectorAll<HTMLElement>('[data-diff]').forEach((drawer) => { drawer.hidden = true; });
+      window.setTimeout(() => void refreshCode().catch(console.error), 2000);
+    } catch (error) {
+      button.textContent = 'failed';
+      window.alert(String(error));
+    }
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-code-panel]').forEach((panel) => {
+    panel.addEventListener('click', (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-action]');
+      if (!button) return;
+      const action = button.dataset.action;
+      if (action === 'diff') void showDiff(button, 'dirty').catch(console.error);
+      if (action === 'unpushed') void showDiff(button, 'unpushed').catch(console.error);
+      if (action === 'push') void pushRepo(button);
+      if (action === 'commit') void commitRepo(button);
+      if (action === 'commit-all') void commitAll(button);
+    });
+  });
+
+  window.setInterval(() => void refreshCode().catch(console.error), 60_000);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) void refreshCode().catch(console.error);
+  });
+</script>

@@ -1,5 +1,5 @@
 ---
-import '../styles/global.css';
+import AppLayout from '../layouts/AppLayout.astro';
 import { getDashboardData } from '../lib/data';
 import { getNextActions } from '../lib/actions';
 import NowPanel from '../components/now/NowPanel.astro';
@@ -89,25 +89,12 @@ function ageInDays(timestamp: string): number {
   return (Date.now() - time) / 86_400_000;
 }
 ---
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Aperture</title>
-</head>
-<body>
-  <main>
-    <header class="topbar">
-      <div class="brand">aperture</div>
-      <div class="meta">
-        <a href="/tasks" class="nav-link">tasks</a>
-        <a href="/boreal" class="nav-link">boréal</a>
-        <a href="/design" class="nav-link">design</a>
-        <span class={`badge badge-${statusTone}`}>{health.status}</span>
-        <span>tick {health.tick}</span>
-        <span>{health.updated}</span>
-      </div>
+<AppLayout title="Aperture" page="dashboard">
+  <Fragment slot="topbar-extra">
+    <span class={`badge badge-${statusTone}`}>{health.status}</span>
+    <span>tick {health.tick}</span>
+    <span>{health.updated}</span>
+  </Fragment>
     </header>
 
     <div class="grid">
@@ -648,5 +635,5 @@ function ageInDays(timestamp: string): number {
     refreshSystem();
     setInterval(refreshSystem, 5000);
   </script>
-</body>
+</AppLayout>
 </html>

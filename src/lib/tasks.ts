@@ -12,6 +12,7 @@ const BRAIN_BUS_TASKS = join(HOME, 'obsidian/claude-bus/tasks');
 const APERTURE_JOBS = join(HOME, '.local/share/aperture/jobs');
 const NAVI_TASKS = join(HOME, 'projects/navi/.agent/TASKS.md');
 const NAVI_PROJECT_DIR = join(HOME, 'projects/navi');
+const ORBIT_TASKS = join(HOME, 'projects/orbit/.agent/TASKS.md');
 export const PROVIDED_INPUTS_HEADING = 'PROVIDED INPUTS (via Aperture)';
 export const GATES_RE = /<!--\s*gates:\s*depends=([^;]*);\s*inputs=([^;]*);\s*confirms=([^>]*?)\s*-->/;
 
@@ -94,6 +95,7 @@ export interface TaskboardData {
   vicTasks: ExTask[];
   syntraTasks: SyntraTask[];
   naviTasks: SyntraTask[];
+  orbitTasks: SyntraTask[];
   brainBus: BrainBusSummary;
 }
 
@@ -511,12 +513,66 @@ export async function getNaviTasks(): Promise<SyntraTask[]> {
   return sortTasks(tasks.filter((t): t is SyntraTask => t !== null));
 }
 
+function classifyOrbitStatus(raw: string): { status: string; statusBadge: string; statusTone: string; uninitiated: boolean } {
+  const s = raw.toLowerCase().trim();
+  if (s.startsWith('done')) return { status: 'done', statusBadge: 'DONE', statusTone: 'green', uninitiated: false };
+  if (s === 'review') return { status: 'review', statusBadge: 'REVIEW', statusTone: 'orange', uninitiated: false };
+  if (s === 'in_progress') return { status: 'in_progress', statusBadge: 'IN PROGRESS', statusTone: 'blue', uninitiated: false };
+  if (s === 'briefed') return { status: 'briefed', statusBadge: 'BRIEFED', statusTone: 'blue', uninitiated: false };
+  if (s === 'backlog') return { status: 'backlog', statusBadge: 'BACKLOG', statusTone: 'muted', uninitiated: true };
+  return { status: s, statusBadge: s, statusTone: 'muted', uninitiated: false };
+}
+
+export async function getOrbitTasks(): Promise<SyntraTask[]> {
+  const content = await readText(ORBIT_TASKS);
+  const seen = new Set<string>();
+  const tasks = content
+    .split(/\r?\n/)
+    .filter((line) => /^\|\s*O-\d+\s*\|/.test(line))
+    .map((line): SyntraTask | null => {
+      const cells = tableCells(line);
+      if (cells.length < 4) return null;
+      const id = cells[0];
+      if (seen.has(id)) return null;
+      seen.add(id);
+      const title = cells[1] || '';
+      const rawStatus = cells[3] || 'backlog';
+      const notes = cells[4] || '';
+      const { status, statusBadge, statusTone, uninitiated } = classifyOrbitStatus(rawStatus);
+      return {
+        id,
+        status,
+        statusBadge,
+        statusTone,
+        uninitiated,
+        priority: '',
+        title,
+        briefPath: '',
+        briefPreview: '',
+        briefContent: '',
+        briefExists: false,
+        prompt: '',
+        notes,
+        dependsOn: '',
+        blocked: false,
+        requiredInputs: [],
+        requiredConfirms: [],
+        providedInputs: {},
+        providedConfirms: [],
+        missingGates: [],
+      };
+    })
+    .filter((t): t is SyntraTask => t !== null);
+  return sortTasks(tasks);
+}
+
 export async function getTaskboardData(): Promise<TaskboardData> {
-  const [permissionRequests, ecosystemTasks, syntraTasks, naviTasks, brainBus, jobs] = await Promise.all([
+  const [permissionRequests, ecosystemTasks, syntraTasks, naviTasks, orbitTasks, brainBus, jobs] = await Promise.all([
     getPermissionRequests(),
     getExTasks(),
     getSyntraTasks(),
     getNaviTasks(),
+    getOrbitTasks(),
     getBrainBusSummary(),
     latestJobs(),
   ]);
@@ -530,6 +586,7 @@ export async function getTaskboardData(): Promise<TaskboardData> {
     vicTasks: overlayJobState(vicTasks, jobs),
     syntraTasks: overlayJobState(syntraTasks, jobs),
     naviTasks,
+    orbitTasks,
     brainBus,
   };
 }

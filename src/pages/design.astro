@@ -1,5 +1,5 @@
 ---
-import '../styles/global.css';
+import AppLayout from '../layouts/AppLayout.astro';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readdir, readFile } from 'node:fs/promises';
@@ -51,25 +51,7 @@ async function latestManifest(): Promise<Manifest> {
   return { run: null, timestamp: null, screenshots: [] };
 }
 ---
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Design · Aperture</title>
-</head>
-<body>
-  <main>
-    <header class="topbar">
-      <div class="brand">aperture</div>
-      <div class="meta">
-        <a href="/" class="nav-link">dashboard</a>
-        <a href="/tasks" class="nav-link">tasks</a>
-        <a href="/boreal" class="nav-link">boréal</a>
-        <a href="/design" class="nav-link">refresh</a>
-      </div>
-    </header>
-
+<AppLayout title="Design" page="design">
     <section class="panel panel-wide" aria-labelledby="design-heading">
       <div class="section-head">
         <div>
@@ -79,8 +61,15 @@ async function latestManifest(): Promise<Manifest> {
         <div class="section-head-right">
           {manifest.run ? <span class="badge badge-blue">{manifest.run}</span> : <span class="badge badge-yellow">no run</span>}
           {manifest.timestamp ? <span class="badge badge-muted">{manifest.timestamp}</span> : null}
+          <button id="run-review-btn" class="review-btn">run ai review</button>
+          <span id="review-status" class="review-status" hidden></span>
         </div>
       </div>
+
+      <details id="review-log-details" class="review-log-wrap">
+        <summary class="review-log-toggle">reviewer log</summary>
+        <pre id="review-log" class="review-log-pre">loading…</pre>
+      </details>
 
       {manifest.screenshots.length > 0 ? (
         <div class="design-grid">
@@ -165,6 +154,31 @@ async function latestManifest(): Promise<Manifest> {
       }
     }
   </style>
+  <style>
+    .review-btn {
+      font: inherit;
+      font-size: 0.76rem;
+      background: none;
+      border: 1px solid #333;
+      color: var(--text);
+      padding: 3px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    .review-btn:hover { border-color: var(--blue); color: var(--blue); }
+    .review-btn:disabled { opacity: 0.4; cursor: default; }
+    .review-status { font-size: 0.76rem; color: var(--muted); }
+    .review-log-wrap { margin-bottom: 16px; }
+    .review-log-toggle { font-size: 0.76rem; color: var(--muted); cursor: pointer; list-style: none; user-select: none; }
+    .review-log-toggle:hover { color: var(--text); }
+    .review-log-pre {
+      margin-top: 8px; padding: 10px 12px;
+      background: #080808; border: 1px solid #1a1a1a; border-radius: 3px;
+      font-size: 0.72rem; line-height: 1.5; color: var(--muted);
+      white-space: pre-wrap; overflow-wrap: anywhere;
+      max-height: 200px; overflow-y: auto;
+    }
+  </style>
   <script define:vars={{ currentRun: manifest.run ?? '' }}>
     async function pollDesignScreenshots() {
       try {
@@ -181,6 +195,41 @@ async function latestManifest(): Promise<Manifest> {
     }
 
     setInterval(pollDesignScreenshots, 15_000);
+
+    const logEl = document.getElementById('review-log');
+    const logDetails = document.getElementById('review-log-details');
+    async function refreshLog() {
+      if (!logDetails.open) return;
+      try {
+        const res = await fetch('/api/design-review-log', { cache: 'no-store' });
+        if (res.ok) logEl.textContent = (await res.json()).log || '(empty)';
+      } catch {}
+    }
+    logDetails?.addEventListener('toggle', refreshLog);
+    setInterval(refreshLog, 3_000);
+    refreshLog();
+
+    const runBtn = document.getElementById('run-review-btn');
+    const statusEl = document.getElementById('review-status');
+
+    runBtn?.addEventListener('click', async () => {
+      runBtn.disabled = true;
+      statusEl.textContent = 'running…';
+      statusEl.hidden = false;
+      try {
+        const res = await fetch('/api/design-review', { method: 'POST' });
+        if (res.ok) {
+          statusEl.textContent = 'check telegram';
+        } else {
+          statusEl.textContent = 'error — check aperture logs';
+        }
+      } catch {
+        statusEl.textContent = 'network error';
+      }
+      setTimeout(() => {
+        runBtn.disabled = false;
+        statusEl.hidden = true;
+      }, 10_000);
+    });
   </script>
-</body>
-</html>
+</AppLayout>

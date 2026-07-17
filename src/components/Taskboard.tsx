@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Nav } from './Nav';
 import { CodexPanel } from './codex/CodexPanel';
 import type { Job } from './codex/JobRow';
 import { BorealPanel } from './tasks/BorealPanel';
@@ -6,6 +7,7 @@ import { ExPanel } from './tasks/ExPanel';
 import { VictoriquePanel } from './tasks/VictoriquePanel';
 import { SyntraPanel } from './tasks/SyntraPanel';
 import { NaviPanel } from './tasks/NaviPanel';
+import { OrbitTaskPanel } from './tasks/OrbitTaskPanel';
 import { PermissionRequests } from './tasks/PermissionRequests';
 import { BrainBus } from './tasks/BrainBus';
 import { EscalationPanel } from './tasks/EscalationPanel';
@@ -90,21 +92,18 @@ export default function Taskboard() {
 
   return (
     <main>
-      <header className="topbar">
-        <div className="brand">aperture / tasks</div>
-        <div className="taskboard-meta">
-          <span>Last updated: {lastUpdated}</span>
-          <a href="/" className="nav-link">dashboard</a>
-        </div>
-      </header>
+      <Nav page="tasks" subtitle="tasks">
+        <span>Last updated: {lastUpdated}</span>
+      </Nav>
       <div className="taskboard">
         <PermissionRequests items={data?.permissionRequests ?? []} onResponded={refreshData} />
         <EscalationPanel />
         <BorealPanel tasks={overlayJobs(data?.borealTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
         <ExPanel tasks={overlayJobs(data?.exTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
         <VictoriquePanel tasks={overlayJobs(data?.vicTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
-        <SyntraPanel tasks={overlayJobs(data?.syntraTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
+        <SyntraPanel tasks={overlayJobs(data?.syntraTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} onRefresh={refreshData} />
         <NaviPanel tasks={data?.naviTasks ?? []} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
+        <OrbitTaskPanel tasks={data?.orbitTasks ?? []} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
         <CodexPanel jobs={jobs} />
         <BrainBus summary={data?.brainBus} />
       </div>

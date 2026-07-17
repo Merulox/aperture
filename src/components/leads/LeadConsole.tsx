@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Nav } from '../Nav';
 
 interface Lead {
   name: string;
@@ -130,14 +131,9 @@ export default function LeadConsole() {
 
   return (
     <main className={`leads-main ${selected ? 'thread-open' : ''}`}>
-      <header className="topbar leads-topbar">
-        <div className="brand">aperture / leads</div>
-        <div className="meta">
-          <span>{leads.filter((lead) => lead.unanswered).length} unanswered</span>
-          <a href="/" className="nav-link">dashboard</a>
-          <a href="/tasks" className="nav-link">tasks</a>
-        </div>
-      </header>
+      <Nav page="leads" subtitle="leads">
+        <span>{leads.filter((lead) => lead.unanswered).length} unanswered</span>
+      </Nav>
 
       <div className="leads-console">
         <aside className="lead-list-panel">
