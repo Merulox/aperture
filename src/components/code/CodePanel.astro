@@ -39,6 +39,7 @@ function ago(iso: string): string {
     <a class="label" id="code-heading" href="/code">code graph</a>
     <span class="section-head-right">
       <button class="btn-sm" data-action="commit-all">commit all</button>
+      <button class="btn-sm" data-action="push-all">push all</button>
       <span class={`badge badge-${initial.serve === 'up' ? 'green' : 'red'}`} data-serve-badge>serve {initial.serve}</span>
       <a class="badge badge-blue" href={EXPLORER_URL} target="_blank" rel="noopener">explorer ↗</a>
     </span>
@@ -310,6 +311,42 @@ function ago(iso: string): string {
     }
   }
 
+  async function pushAll(button: HTMLButtonElement) {
+    const response = await fetch('/api/gitnexus', { cache: 'no-store' });
+    const data = await response.json();
+    const targets = data.repos.filter((repo: any) => repo.sync && repo.sync.remoteUrl && repo.sync.ahead > 0 && repo.sync.behind === 0);
+    const skipped = data.repos.filter((repo: any) => repo.sync && repo.sync.remoteUrl && repo.sync.ahead > 0 && repo.sync.behind > 0);
+    if (targets.length === 0) {
+      window.alert('nothing to push');
+      return;
+    }
+    const names = targets.map((repo: any) => `${repo.name} ↑${repo.sync.ahead}`).join(', ');
+    const note = skipped.length ? `\n(skipping ${skipped.map((r: any) => r.name).join(', ')} — behind remote, pull first)` : '';
+    if (!window.confirm(`push: ${names}?${note}`)) return;
+    button.disabled = true;
+    const failures: string[] = [];
+    for (const repo of targets) {
+      button.textContent = `pushing ${repo.name}…`;
+      try {
+        const pushResponse = await fetch('/api/git-push', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ repo: repo.name }),
+        });
+        if (!pushResponse.ok) {
+          const pushData = await pushResponse.json();
+          failures.push(`${repo.name}: ${pushData.error ?? 'push failed'}`);
+        }
+      } catch (error) {
+        failures.push(`${repo.name}: ${String(error)}`);
+      }
+    }
+    button.disabled = false;
+    button.textContent = failures.length ? 'push all (some failed)' : 'push all ✓';
+    if (failures.length) window.alert(failures.join('\n'));
+    window.setTimeout(() => void refreshCode().catch(console.error), 2000);
+  }
+
   document.querySelectorAll<HTMLElement>('[data-code-panel]').forEach((panel) => {
     panel.addEventListener('click', (event) => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-action]');
@@ -320,6 +357,7 @@ function ago(iso: string): string {
       if (action === 'push') void pushRepo(button);
       if (action === 'commit') void commitRepo(button);
       if (action === 'commit-all') void commitAll(button);
+      if (action === 'push-all') void pushAll(button);
     });
   });
 
