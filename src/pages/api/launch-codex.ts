@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { notifyJobComplete } from '../../lib/notify';
-import { readSyntraStatusMap, syntraGateState } from '../../lib/tasks';
+import { readCombinedStatusMap, syntraGateState } from '../../lib/tasks';
 
 const execFileAsync = promisify(execFile);
 const HOME = homedir();
@@ -194,8 +194,9 @@ function contextForMatch(content: string, index: number, length: number): string
   return surrounding.trim().slice(0, 400);
 }
 
-const HARD_BLOCK = /must .* authorize|authorize the required|outside .* FILES IT OWNS|not in FILES IT OWNS|MISSING_DEP|BRIEF_ERROR|NEEDS_CLARIFICATION|command not found|no such file or directory|apply_patch rejected|writable roots are limited|outside (?:the )?(?:sandbox|writable)/i;
-const EXPECTED_LIMITATION = /live .*(verification|endpoint|api)|service (?:was|is)?\s*not running|could not (?:curl|reach|connect)|localhost|\bgit\b.*(?:prohibit|forbid|read-only|not allowed|unavailable)|\.git\/|systemctl|user scope bus|verification .*pending|unverified because|restart .*(?:not run|pending)/i;
+const SENTINEL_BLOCK = /MISSING_DEP|BRIEF_ERROR|NEEDS_CLARIFICATION/;
+const HARD_BLOCK = /must .* authorize|authorize the required|outside .* FILES IT OWNS|not in FILES IT OWNS|command not found|no such file or directory|apply_patch rejected|writable roots are limited|outside (?:the )?(?:sandbox|writable)/i;
+const EXPECTED_LIMITATION = /live .*(verification|endpoint|api)|service (?:was|is)?\s*not running|could not (?:curl|reach|connect)|localhost|\bgit\b.*(?:prohibit|forbid|read-only|not allowed|unavailable)|\.git\/|systemctl|user scope bus|verification .*pending|unverified because|restart .*(?:not run|pending)|read-only file system|commander-register|fetch failed|network .*(?:denied|unreachable|blocked)|outbound .*not (?:allowed|permitted)|\.blocked|blocked (?:in|by) this sandbox|read-only.*(?:director|lock|\.locks)|EROFS|Errno 30/i;
 
 function substantiveBlockers(content: string): string | undefined {
   const remaining = content
@@ -210,10 +211,20 @@ function substantiveBlockers(content: string): string | undefined {
 }
 
 export function blockedReasonFor(content: string): string | undefined {
-  const direct = HARD_BLOCK.exec(content);
-  if (direct?.index !== undefined) return contextForMatch(content, direct.index, direct[0].length);
+  const sentinel = SENTINEL_BLOCK.exec(content);
+  if (sentinel?.index !== undefined) return contextForMatch(content, sentinel.index, sentinel[0].length);
 
-  return substantiveBlockers(sectionBody(content, 'Blockers or open questions'));
+  const blockers = sectionBody(content, 'Blockers or open questions');
+  const circumstantial = HARD_BLOCK.exec(blockers);
+  if (circumstantial?.index !== undefined) return contextForMatch(blockers, circumstantial.index, circumstantial[0].length);
+
+  return substantiveBlockers(blockers);
+}
+
+function sentinelBlockedReasonFor(content: string): string | undefined {
+  const sentinel = SENTINEL_BLOCK.exec(content);
+  if (sentinel?.index !== undefined) return contextForMatch(content, sentinel.index, sentinel[0].length);
+  return undefined;
 }
 
 export function restartAfterServices(content: string): string[] {
@@ -363,7 +374,7 @@ async function applyRestarts(briefPath: string, logPath: string): Promise<void> 
 async function classifyCompletion(lastMessagePath: string, logPath: string): Promise<string | undefined> {
   const lastMessage = await readFile(lastMessagePath, 'utf8').catch(() => '');
   const log = await readFile(logPath, 'utf8').catch(() => '');
-  return blockedReasonFor(lastMessage || tailLines(log, 120));
+  return lastMessage ? blockedReasonFor(lastMessage) : sentinelBlockedReasonFor(tailLines(log, 120));
 }
 
 async function writeJobRecord(jobPath: string, job: JobRecord): Promise<void> {
@@ -406,7 +417,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (executor === 'opencode') {
     return new Response(JSON.stringify({ error: `${taskId} declares EXECUTOR: opencode — run manually: cd <workroot> && opencode` }), { status: 400, headers: { 'Content-Type': 'application/json' } });
   }
-  const gates = syntraGateState(briefContent, await readSyntraStatusMap());
+  const gates = syntraGateState(briefContent, await readCombinedStatusMap());
   if (gates.missingGates.length > 0) {
     return new Response(JSON.stringify({ error: 'Task has unmet launch gates.', missingGates: gates.missingGates }), {
       status: 409,
