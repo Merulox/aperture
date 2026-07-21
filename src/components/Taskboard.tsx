@@ -103,7 +103,7 @@ export default function Taskboard() {
         <VictoriquePanel tasks={overlayJobs(data?.vicTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
         <SyntraPanel tasks={overlayJobs(data?.syntraTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} onRefresh={refreshData} />
         <NaviPanel tasks={data?.naviTasks ?? []} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
-        <OrbitTaskPanel tasks={data?.orbitTasks ?? []} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} />
+        <OrbitTaskPanel tasks={overlayJobs(data?.orbitTasks ?? [])} jobs={jobs} launchingTaskId={launchingTaskId} onLaunch={launchTask} onRefresh={refreshData} />
         <CodexPanel jobs={jobs} />
         <BrainBus summary={data?.brainBus} />
       </div>

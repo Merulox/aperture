@@ -133,7 +133,7 @@ function InputsForm({ task, onRefresh }: { task: any; onRefresh?: () => Promise<
   );
 }
 
-function TaskRow(props: Props & { task: any; attention?: boolean }) {
+export function TaskRow(props: Props & { task: any; attention?: boolean }) {
   const { task, attention = false } = props;
   return (
     <div className={`task-row ${attention && task.uninitiated ? 'task-uninitiated' : ''}`}>

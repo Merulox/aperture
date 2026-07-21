@@ -8,6 +8,7 @@ const HOME = homedir();
 const ALLOWED_DIRS = [
   join(HOME, 'syntra/docs/planning'),
   join(HOME, 'kernel/ecosystem-review/briefs'),
+  join(HOME, 'projects/orbit/docs/planning'),
 ];
 
 function json(body: unknown, status = 200): Response {

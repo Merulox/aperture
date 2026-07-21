@@ -122,7 +122,8 @@ function tableCells(line: string): string[] {
 }
 
 function splitGateField(value: string): string[] {
-  return value.split(',').map((item) => item.trim()).filter(Boolean);
+  // Tolerate bracketed lists from the kernel template: depends=[O-16] === depends=O-16
+  return value.replace(/^\s*\[|\]\s*$/g, '').split(',').map((item) => item.trim()).filter(Boolean);
 }
 
 export interface ProvidedBriefInputs {
@@ -192,6 +193,21 @@ export function syntraGateState(briefContent: string, statusMap = new Map<string
 export async function readSyntraStatusMap(): Promise<Map<string, string>> {
   const content = await readText(SYNTRA_TASKS);
   return syntraStatusMapFromTasksContent(content);
+}
+
+export async function readOrbitStatusMap(): Promise<Map<string, string>> {
+  const content = await readText(ORBIT_TASKS);
+  const rows = content
+    .split(/\r?\n/)
+    .filter((line) => /^\|\s*O-\d+\s*\|/.test(line))
+    .map((line) => tableCells(line))
+    .filter((cells) => cells.length >= 4);
+  return new Map(rows.map((cells) => [cells[0], classifyOrbitStatus(cells[3] || 'backlog').status]));
+}
+
+export async function readCombinedStatusMap(): Promise<Map<string, string>> {
+  const [syntra, orbit] = await Promise.all([readSyntraStatusMap(), readOrbitStatusMap()]);
+  return new Map([...syntra, ...orbit]);
 }
 
 function syntraStatusMapFromTasksContent(content: string): Map<string, string> {
@@ -516,53 +532,53 @@ export async function getNaviTasks(): Promise<SyntraTask[]> {
 function classifyOrbitStatus(raw: string): { status: string; statusBadge: string; statusTone: string; uninitiated: boolean } {
   const s = raw.toLowerCase().trim();
   if (s.startsWith('done')) return { status: 'done', statusBadge: 'DONE', statusTone: 'green', uninitiated: false };
-  if (s === 'review') return { status: 'review', statusBadge: 'REVIEW', statusTone: 'orange', uninitiated: false };
-  if (s === 'in_progress') return { status: 'in_progress', statusBadge: 'IN PROGRESS', statusTone: 'blue', uninitiated: false };
-  if (s === 'briefed') return { status: 'briefed', statusBadge: 'BRIEFED', statusTone: 'blue', uninitiated: false };
+  if (s.startsWith('review')) return { status: 'review', statusBadge: 'REVIEW', statusTone: 'orange', uninitiated: false };
+  if (s === 'in_progress') return { status: 'in_progress', statusBadge: 'RUNNING', statusTone: 'blue', uninitiated: false };
+  if (s.startsWith('briefed')) return { status: 'briefed', statusBadge: 'BRIEFED', statusTone: 'blue', uninitiated: true };
   if (s === 'backlog') return { status: 'backlog', statusBadge: 'BACKLOG', statusTone: 'muted', uninitiated: true };
   return { status: s, statusBadge: s, statusTone: 'muted', uninitiated: false };
+}
+
+const ORBIT_DIR = join(HOME, 'projects/orbit');
+
+function orbitBriefPath(notes: string): string {
+  const match = notes.match(/brief:\s*(\S+\.md)/);
+  if (!match) return '';
+  const ref = match[1];
+  return ref.startsWith('~/') ? join(HOME, ref.slice(2)) : isAbsolute(ref) ? ref : join(ORBIT_DIR, ref);
 }
 
 export async function getOrbitTasks(): Promise<SyntraTask[]> {
   const content = await readText(ORBIT_TASKS);
   const seen = new Set<string>();
-  const tasks = content
+  const rows = content
     .split(/\r?\n/)
     .filter((line) => /^\|\s*O-\d+\s*\|/.test(line))
-    .map((line): SyntraTask | null => {
-      const cells = tableCells(line);
-      if (cells.length < 4) return null;
-      const id = cells[0];
-      if (seen.has(id)) return null;
-      seen.add(id);
-      const title = cells[1] || '';
-      const rawStatus = cells[3] || 'backlog';
-      const notes = cells[4] || '';
-      const { status, statusBadge, statusTone, uninitiated } = classifyOrbitStatus(rawStatus);
-      return {
-        id,
-        status,
-        statusBadge,
-        statusTone,
-        uninitiated,
-        priority: '',
-        title,
-        briefPath: '',
-        briefPreview: '',
-        briefContent: '',
-        briefExists: false,
-        prompt: '',
-        notes,
-        dependsOn: '',
-        blocked: false,
-        requiredInputs: [],
-        requiredConfirms: [],
-        providedInputs: {},
-        providedConfirms: [],
-        missingGates: [],
-      };
-    })
-    .filter((t): t is SyntraTask => t !== null);
+    .map((line) => tableCells(line))
+    .filter((cells) => cells.length >= 4 && !seen.has(cells[0]) && seen.add(cells[0]));
+  const statusMap = new Map(rows.map((cells) => [cells[0], classifyOrbitStatus(cells[3] || 'backlog').status]));
+  const tasks = await Promise.all(rows.map(async (cells): Promise<SyntraTask> => {
+    const rawStatus = cells[3] || 'backlog';
+    const notes = cells[4] || '';
+    const { status, statusBadge, statusTone, uninitiated } = classifyOrbitStatus(rawStatus);
+    const briefPath = orbitBriefPath(notes);
+    const preview = await getBriefPreview(briefPath);
+    const gates = syntraGateState(preview.briefContent, statusMap);
+    return {
+      id: cells[0],
+      status,
+      statusBadge,
+      statusTone,
+      uninitiated,
+      priority: '',
+      title: cells[1] || '',
+      briefPath,
+      ...preview,
+      prompt: status === 'briefed' && briefPath ? promptForBrief(briefPath) : '',
+      notes,
+      ...gates,
+    };
+  }));
   return sortTasks(tasks);
 }
 
@@ -586,7 +602,7 @@ export async function getTaskboardData(): Promise<TaskboardData> {
     vicTasks: overlayJobState(vicTasks, jobs),
     syntraTasks: overlayJobState(syntraTasks, jobs),
     naviTasks,
-    orbitTasks,
+    orbitTasks: overlayJobState(orbitTasks, jobs),
     brainBus,
   };
 }
