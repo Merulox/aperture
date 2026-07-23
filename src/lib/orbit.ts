@@ -21,6 +21,8 @@ export interface LoopTick {
   prompt_hash: string;
   dry_run: boolean;
   blocks: Record<string, number>;
+  blocked_ask?: number;
+  evidence?: string;
 }
 
 export interface PendingAsk {
@@ -106,6 +108,15 @@ function paceToSeconds(pace: string): number {
   return pace.endsWith('h') ? n * 3600 : n * 60;
 }
 
+function isLoopTick(value: unknown): value is LoopTick {
+  if (!value || typeof value !== 'object') return false;
+  const tick = value as Partial<LoopTick>;
+  return typeof tick.tick_id === 'string'
+    && typeof tick.ts === 'string'
+    && typeof tick.dur_s === 'number'
+    && typeof tick.ok === 'boolean';
+}
+
 function readJsonl<T>(path: string): T[] {
   if (!existsSync(path)) return [];
   const out: T[] = [];
@@ -150,7 +161,7 @@ export function getOrbitStatus(): OrbitStatus {
           state = JSON.parse(readFileSync(statePath, 'utf-8')) as LoopState;
         }
 
-        const allTicks = readJsonl<LoopTick>(join(dir, 'ticks.jsonl'));
+        const allTicks = readJsonl<unknown>(join(dir, 'ticks.jsonl')).filter(isLoopTick);
         const _n = new Date();
         const today = `${_n.getFullYear()}-${String(_n.getMonth() + 1).padStart(2, '0')}-${String(_n.getDate()).padStart(2, '0')}`;
         const tokensToday = allTicks

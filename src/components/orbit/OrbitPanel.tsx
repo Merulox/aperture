@@ -44,42 +44,185 @@ async function orbitCmd(args: string[]): Promise<{ ok: boolean; output: string }
 
 // ── Inline result flash ───────────────────────────────────────────────────────
 
+function commandResultSummary(result: { ok: boolean; output: string }): string {
+  const output = result.output.trim();
+  const loopName = output.match(/\[orbit:([^\]]+)\]/)?.[1];
+  const subject = loopName ? `${loopName} tick` : 'Orbit command';
+
+  if (!result.ok) {
+    const terminalReason = output.match(/"terminal_reason":"([^"]+)"/)?.[1];
+    if (terminalReason === 'api_error') {
+      return `${subject} failed — Claude API returned an error before the loop could run. No tokens were used.`;
+    }
+    if (/timed out|timeout/i.test(output)) {
+      return `${subject} failed — the command timed out.`;
+    }
+    if (/permission_denials":\[(?!\])/i.test(output)) {
+      return `${subject} failed — Claude was denied a required permission.`;
+    }
+    const firstLine = output.split('\n', 1)[0].replace(/\s*—\s*exit \d+:.*$/, '').trim();
+    return firstLine.length > 180 ? `${firstLine.slice(0, 177)}…` : firstLine || `${subject} failed.`;
+  }
+
+  const firstLine = output.split('\n', 1)[0].trim();
+  return firstLine.length > 180 ? `${firstLine.slice(0, 177)}…` : firstLine;
+}
+
 function CmdFlash({ result, onDismiss }: { result: { ok: boolean; output: string } | null; onDismiss: () => void }) {
   useEffect(() => {
     if (!result) return;
-    const t = setTimeout(onDismiss, 6000);
+    const t = setTimeout(onDismiss, result.ok ? 6000 : 15_000);
     return () => clearTimeout(t);
   }, [result, onDismiss]);
   if (!result) return null;
+
+  const summary = commandResultSummary(result);
+  const showDetails = !result.ok || summary !== result.output.trim();
   return (
     <div style={{
       background: result.ok ? '#0a1a0a' : '#1a0a0a',
       border: `1px solid ${result.ok ? 'var(--green)' : 'var(--red)'}`,
-      padding: '6px 10px',
+      padding: '8px 10px',
       fontSize: '0.65rem',
       color: result.ok ? 'var(--green)' : 'var(--red)',
-      whiteSpace: 'pre-wrap',
-      wordBreak: 'break-all',
+      lineHeight: 1.45,
+      wordBreak: 'break-word',
     }}>
-      {result.output}
+      <div>{summary}</div>
+      {showDetails && (
+        <details style={{ marginTop: 6, color: 'var(--muted)' }}>
+          <summary style={{ cursor: 'pointer', userSelect: 'none' }}>technical details</summary>
+          <pre style={{
+            margin: '6px 0 0',
+            maxHeight: 120,
+            overflow: 'auto',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-all',
+            fontFamily: 'inherit',
+            fontSize: '0.58rem',
+            color: 'var(--red)',
+          }}>
+            {result.output}
+          </pre>
+        </details>
+      )}
     </div>
   );
 }
 
-// ── Sparkline ─────────────────────────────────────────────────────────────────
+// ── Tick history ──────────────────────────────────────────────────────────────
+
+const TICK_BLOCK_LABELS: Record<string, string> = {
+  ASK: 'ask',
+  EVIDENCE: 'evidence record',
+  MEMORY: 'memory update',
+  NOTIFY: 'notification',
+  PACE: 'pace update',
+  SUMMARY: 'summary',
+};
+
+function tickFailureReason(err: string | null): string {
+  if (!err) return 'unknown error';
+  const terminalReason = err.match(/"terminal_reason":"([^"]+)"/)?.[1];
+  if (terminalReason) return terminalReason.replaceAll('_', ' ');
+  const firstLine = err.split('\n', 1)[0].replace(/^exit \d+:\s*/, '').trim();
+  return firstLine.length > 100 ? `${firstLine.slice(0, 97)}…` : firstLine;
+}
+
+function tickExplanation(tick: LoopTick): string {
+  const when = new Date(tick.ts).toLocaleString('en-CA', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const seconds = Math.round(tick.dur_s);
+  const duration = seconds >= 60 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${seconds}s`;
+  const tokens = (tick.in_tokens || 0) + (tick.cache_new || 0) + (tick.out_tokens || 0);
+  const result = tick.ok ? 'completed' : `failed: ${tickFailureReason(tick.err)}`;
+  const mode = tick.dry_run ? ' · dry run' : '';
+
+  const outputs = Object.entries(tick.blocks || {})
+    .filter(([, count]) => count > 0)
+    .map(([block, count]) => {
+      const label = TICK_BLOCK_LABELS[block] ?? block.toLowerCase();
+      return `${count} ${label}${count === 1 ? '' : 's'}`;
+    });
+  if ((tick.blocked_ask || 0) > 0) {
+    const count = tick.blocked_ask || 0;
+    outputs.push(`${count} blocked ask${count === 1 ? '' : 's'}`);
+  }
+
+  let explanation = `${when} · ${result}${mode} · ${duration} · ${fmtTokens(tokens)} tokens`;
+  if (tick.evidence?.trim()) {
+    const evidence = tick.evidence.trim();
+    explanation += ` — ${evidence.length > 180 ? `${evidence.slice(0, 177)}…` : evidence}`;
+  } else if (outputs.length > 0) {
+    explanation += ` — produced ${outputs.join(', ')}`;
+  } else {
+    explanation += ' — no structured output recorded';
+  }
+  return explanation;
+}
 
 function Sparkline({ ticks }: { ticks: LoopTick[] }) {
   const W = 120, H = 24, BAR = 4, GAP = 1;
   const recent = ticks.slice(-(Math.floor(W / (BAR + GAP))));
+  const [activeTickId, setActiveTickId] = useState<string | null>(null);
+  const activeTick = recent.find(tick => tick.tick_id === activeTickId) ?? recent.at(-1);
+  if (!activeTick) return null;
+
   return (
-    <svg width={W} height={H} style={{ display: 'block' }}>
-      {recent.map((t, i) => {
-        const x = i * (BAR + GAP);
-        const color = t.ok ? 'var(--green)' : 'var(--red)';
-        const h = t.ok ? H : Math.max(4, H / 2);
-        return <rect key={t.tick_id} x={x} y={H - h} width={BAR} height={h} fill={color} opacity={0.7} />;
-      })}
-    </svg>
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <svg width={W} height={H} style={{ display: 'block', flexShrink: 0 }} aria-label="Recent tick history">
+          {recent.map((tick, i) => {
+            const x = i * (BAR + GAP);
+            const color = tick.ok ? 'var(--green)' : 'var(--red)';
+            const h = tick.ok ? H : Math.max(4, H / 2);
+            const explanation = tickExplanation(tick);
+            const isActive = tick.tick_id === activeTick.tick_id;
+            return (
+              <g
+                key={`${tick.tick_id}-${i}`}
+                role="img"
+                tabIndex={0}
+                aria-label={explanation}
+                onMouseEnter={() => setActiveTickId(tick.tick_id)}
+                onMouseLeave={() => setActiveTickId(null)}
+                onFocus={() => setActiveTickId(tick.tick_id)}
+                onBlur={() => setActiveTickId(null)}
+                onClick={() => setActiveTickId(tick.tick_id)}
+                style={{ cursor: 'help', outline: 'none' }}
+              >
+                <title>{explanation}</title>
+                <rect
+                  x={x}
+                  y={H - h}
+                  width={BAR}
+                  height={h}
+                  fill={color}
+                  opacity={isActive ? 1 : 0.55}
+                  stroke={isActive ? color : 'none'}
+                  strokeWidth={1}
+                />
+              </g>
+            );
+          })}
+        </svg>
+        <div style={{ display: 'grid', gap: 3, fontSize: '0.55rem', color: 'var(--muted)' }}>
+          <span><span style={{ color: 'var(--green)' }}>■</span> completed</span>
+          <span><span style={{ color: 'var(--red)' }}>■</span> failed</span>
+        </div>
+      </div>
+      <div
+        aria-live="polite"
+        style={{ marginTop: 6, minHeight: '2.4em', fontSize: '0.6rem', lineHeight: 1.35, color: 'var(--muted)' }}
+      >
+        {tickExplanation(activeTick)}
+      </div>
+    </div>
   );
 }
 

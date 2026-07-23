@@ -1,0 +1,516 @@
+---
+import AppLayout from '../layouts/AppLayout.astro';
+import { getRedTeamDashboard } from '../lib/red-team';
+
+const dashboard = await getRedTeamDashboard();
+const activeWorkspace = dashboard.workspaces.find((workspace) => workspace.id === dashboard.progress.activeWorkspace) ?? null;
+const progressPercent = dashboard.lessonCount > 0 ? Math.round((dashboard.completedCount / dashboard.lessonCount) * 100) : 0;
+const categories = [...new Set(dashboard.tools.map((tool) => tool.category))].sort();
+const installedCount = dashboard.tools.filter((tool) => tool.installed).length;
+const next = dashboard.nextStep;
+const commandFor = (command: string | null) => command?.replaceAll('training-lab', activeWorkspace?.id ?? 'training-lab') ?? null;
+const statusFor = (moduleId: string, lessonId: string) => dashboard.missionStatuses[`${moduleId}/${lessonId}`];
+const moduleState = (moduleId: string) => {
+  const module = dashboard.modules.find((item) => item.id === moduleId);
+  if (!module) return 'locked';
+  const states = module.lessons.map((lesson) => statusFor(module.id, lesson.id).state);
+  if (states.every((state) => state === 'verified')) return 'verified';
+  if (states.some((state) => state === 'ready')) return 'active';
+  return 'locked';
+};
+---
+<AppLayout title="Hacking" page="red-team" subtitle="guided lab / operations">
+  <span slot="topbar-extra" class:list={['badge', activeWorkspace?.scopeReady ? 'badge-green' : 'badge-yellow']}>
+    {activeWorkspace?.scopeReady ? 'owned scope loaded' : 'scope incomplete'}
+  </span>
+
+  <div class="hack-shell">
+    <div class="hack-main">
+      <section class="hero" aria-labelledby="hack-title">
+        <div>
+          <div class="eyebrow">authorized systems only</div>
+          <h1 id="hack-title">Hacking is controlled observation.</h1>
+          <p>{dashboard.principle}</p>
+        </div>
+        <div class="progress-block">
+          <div class="progress-number">{progressPercent}%</div>
+          <div class="progress-copy">
+            <strong>{dashboard.completedCount} verified missions</strong>
+            <span>of {dashboard.lessonCount} · derived from workspace artifacts</span>
+          </div>
+          <div class="progress-track"><span style={`width:${progressPercent}%`}></span></div>
+        </div>
+      </section>
+
+      {next ? (
+        <section class="guide" aria-labelledby="guide-title">
+          <div class="section-headline">
+            <div>
+              <div class="eyebrow">do this now · {next.moduleTitle}</div>
+              <h2 id="guide-title">{next.lesson.title}</h2>
+            </div>
+            <span class="mission-state state-ready">ready</span>
+          </div>
+
+          <div class="guide-intro">
+            <div>
+              <span class="field-label">what you are learning</span>
+              <p>{next.lesson.brief}</p>
+            </div>
+            <div>
+              <span class="field-label">finish line</span>
+              <p>{next.lesson.objective}</p>
+            </div>
+            <div class="lab-boundary">
+              <span class="field-label">lab boundary</span>
+              <p>{next.lesson.lab}</p>
+            </div>
+          </div>
+
+          <div class="guide-grid">
+            <div class="steps-panel">
+              <div class="panel-title">guided steps</div>
+              {next.lesson.steps.map((step, index) => {
+                const command = commandFor(step.command);
+                return (
+                  <article class="step">
+                    <span class="step-number">{String(index + 1).padStart(2, '0')}</span>
+                    <div>
+                      <h3>{step.title}</h3>
+                      <p>{step.explanation}</p>
+                      {command && (
+                        <div class="command-row">
+                          <code>{command}</code>
+                          <button type="button" class="copy-command" data-command={command}>copy</button>
+                        </div>
+                      )}
+                      <div class="expected"><span>expected</span>{step.expected}</div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            <div class="concept-panel">
+              <div class="panel-title">concepts in this mission</div>
+              {next.lesson.terms.map((term) => (
+                <div class="term">
+                  <strong>{term.term}</strong>
+                  <p>{term.meaning}</p>
+                </div>
+              ))}
+              <div class="tool-strip">
+                <span>instruments</span>
+                {next.lesson.tools.map((tool) => <code>{tool}</code>)}
+              </div>
+            </div>
+          </div>
+
+          <div class="proof-panel">
+            <div class="proof-head">
+              <div>
+                <div class="panel-title">proof contract</div>
+                <strong>{next.lesson.proof.label}</strong>
+              </div>
+              <button id="refresh-proof" type="button">recheck workspace</button>
+            </div>
+            <div class="check-grid">
+              {next.status.checks.map((check) => (
+                <div class:list={['proof-check', check.passed ? 'passed' : 'pending']}>
+                  <span>{check.passed ? 'verified' : 'missing'}</span>
+                  <strong>{check.label}</strong>
+                  <small>{check.detail}</small>
+                </div>
+              ))}
+            </div>
+            <p class="no-checkmark">There is no “mark complete” control. Aperture advances only when the required file, event, explanation, and evidence exist.</p>
+          </div>
+        </section>
+      ) : (
+        <section class="guide complete-guide">
+          <div class="eyebrow">route complete</div>
+          <h2>Every mission has verified workspace evidence.</h2>
+          <p>Keep the same scope → hypothesis → minimal validation → evidence → remediation → retest loop.</p>
+        </section>
+      )}
+
+      <section class="roadmap-section" aria-labelledby="route-title">
+        <div class="section-headline">
+          <div>
+            <div class="eyebrow">map, not a checkbox list</div>
+            <h2 id="route-title">Learning route</h2>
+          </div>
+          <span class="section-note">open any mission to see its objective and proof</span>
+        </div>
+
+        <div class="roadmap">
+          {dashboard.modules.map((module) => {
+            const state = moduleState(module.id);
+            const verified = module.lessons.filter((lesson) => statusFor(module.id, lesson.id).state === 'verified').length;
+            return (
+              <article class:list={['module', `module-${state}`]}>
+                <header>
+                  <span class="module-number">{String(module.order).padStart(2, '0')}</span>
+                  <div>
+                    <h3>{module.title}</h3>
+                    <p>{module.why}</p>
+                  </div>
+                  <span class:list={['mission-state', `state-${state}`]}>{state}</span>
+                </header>
+                <div class="module-meta">
+                  <span>{verified}/{module.lessons.length} verified</span>
+                  <span>{module.prerequisites.length > 0 ? `requires ${module.prerequisites.join(' + ')}` : 'entry module'}</span>
+                </div>
+                <div class="mission-list">
+                  {module.lessons.map((lesson) => {
+                    const status = statusFor(module.id, lesson.id);
+                    return (
+                      <details class="mission">
+                        <summary>
+                          <span class:list={['mission-dot', status.state]}></span>
+                          <span>
+                            <strong>{lesson.title}</strong>
+                            <small>{lesson.objective}</small>
+                          </span>
+                          <span class:list={['mission-state', `state-${status.state}`]}>{status.state}</span>
+                        </summary>
+                        <div class="mission-detail">
+                          <p>{lesson.brief}</p>
+                          <div class="mission-boundary"><span>lab</span>{lesson.lab}</div>
+                          <div class="mission-proof"><span>proof</span>{lesson.proof.label}</div>
+                          <div class="mini-checks">
+                            {status.checks.map((check) => (
+                              <div class:list={[check.passed ? 'passed' : 'pending']}>
+                                <i></i><span>{check.label}</span><small>{check.detail}</small>
+                              </div>
+                            ))}
+                          </div>
+                          {status.state !== 'locked' && (
+                            <div class="mission-actions">
+                              {lesson.steps.map((step) => {
+                                const command = commandFor(step.command);
+                                return command ? <code>{command}</code> : null;
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </details>
+                    );
+                  })}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section class="workspace-section" aria-labelledby="workspace-title">
+        <div class="section-headline">
+          <div>
+            <div class="eyebrow">engagement memory</div>
+            <h2 id="workspace-title">Workspaces</h2>
+          </div>
+          <code>{dashboard.workspaceRoot}</code>
+        </div>
+        <div class="workspace-grid">
+          {dashboard.workspaces.map((workspace) => {
+            const active = workspace.id === dashboard.progress.activeWorkspace;
+            return (
+              <article class:list={['workspace', active && 'active']}>
+                <div class="workspace-head">
+                  <div>
+                    <span>{workspace.authorization.replaceAll('_', ' ')}</span>
+                    <h3>{workspace.name}</h3>
+                  </div>
+                  <span class:list={['scope-pill', workspace.scopeReady ? 'ready' : 'incomplete']}>
+                    {workspace.scopeReady ? 'scope loaded' : 'scope incomplete'}
+                  </span>
+                </div>
+                <code class="workspace-path">{workspace.path}</code>
+                <div class="workspace-counts">
+                  <div><strong>{workspace.targetCount}</strong><span>targets</span></div>
+                  <div><strong>{workspace.counts.raw}</strong><span>raw</span></div>
+                  <div><strong>{workspace.counts.normalized}</strong><span>normalized</span></div>
+                  <div><strong>{workspace.counts.missions}</strong><span>journals</span></div>
+                  <div><strong>{workspace.counts.evidence}</strong><span>evidence</span></div>
+                </div>
+                <div class="workspace-footer">
+                  <span>phase / {workspace.phase}</span>
+                  <button type="button" class="workspace-select" data-workspace={workspace.id} disabled={active}>
+                    {active ? 'active workspace' : 'set active'}
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section class="tools-section" aria-labelledby="tools-title">
+        <div class="section-headline">
+          <div>
+            <div class="eyebrow">selective instruments</div>
+            <h2 id="tools-title">Tool menu</h2>
+          </div>
+          <span class="section-note">{installedCount}/{dashboard.tools.length} detected · guidance, never autoplay</span>
+        </div>
+        <div class="tool-controls">
+          <button type="button" class="tool-filter selected" data-category="all">all</button>
+          {categories.map((category) => <button type="button" class="tool-filter" data-category={category}>{category}</button>)}
+          <input id="tool-search" type="search" aria-label="Filter tools" placeholder="filter tools" />
+        </div>
+        <div class="tool-grid">
+          {dashboard.tools.map((tool) => (
+            <article class="tool" data-category={tool.category} data-search={`${tool.name} ${tool.purpose} ${tool.useWhen} ${tool.stage}`.toLowerCase()}>
+              <div class="tool-head">
+                <h3>{tool.name}</h3>
+                <div><span class:list={['availability', tool.installed ? 'installed' : 'missing']}>{tool.installed ? 'installed' : 'not installed'}</span><span class:list={['risk', `risk-${tool.risk}`]}>{tool.risk}</span></div>
+              </div>
+              <div class="tool-meta">{tool.category} / {tool.mode} / after {tool.stage}</div>
+              <p>{tool.purpose}</p>
+              <div class="use-when"><span>use when</span>{tool.useWhen}</div>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+
+    <aside class="sidecar">
+      <div class="sidecar-sticky">
+        <div class="eyebrow">how this dashboard works</div>
+        <h2>It follows the work.</h2>
+        <ol class="method">
+          <li><span>1</span><div><strong>Understand</strong><small>Read the concept and boundary.</small></div></li>
+          <li><span>2</span><div><strong>Execute</strong><small>Run only the bounded lab steps.</small></div></li>
+          <li><span>3</span><div><strong>Explain</strong><small>Record what happened and why.</small></div></li>
+          <li><span>4</span><div><strong>Prove</strong><small>Reference a real workspace artifact.</small></div></li>
+        </ol>
+
+        <div class="side-block">
+          <span class="field-label">active workspace</span>
+          {activeWorkspace ? (
+            <>
+              <strong>{activeWorkspace.name}</strong>
+              <code>cd {activeWorkspace.path}</code>
+              <div class="live-stats">
+                <span>{activeWorkspace.counts.raw} raw</span>
+                <span>{activeWorkspace.counts.missions} journals</span>
+                <span>{activeWorkspace.counts.evidence} evidence</span>
+              </div>
+            </>
+          ) : <p>Create an owned training lab before starting.</p>}
+        </div>
+
+        <div class="side-block boundary">
+          <span class="field-label">hard boundary</span>
+          <p>Reachability is not authorization. Every active observation begins with the scope gate; exclusions always win.</p>
+          {activeWorkspace && <code>rt scope {activeWorkspace.id} &lt;target&gt;</code>}
+        </div>
+
+        <div class="side-block data-model">
+          <span class="field-label">evidence model</span>
+          <div><i class="raw"></i><strong>raw</strong><small>unchanged source observation</small></div>
+          <div><i class="normalized"></i><strong>normalized</strong><small>reproducible disposable view</small></div>
+          <div><i class="evidence"></i><strong>evidence</strong><small>curated, hashed, redacted proof</small></div>
+        </div>
+        <div id="hack-status" role="status" aria-live="polite"></div>
+      </div>
+    </aside>
+  </div>
+
+  <style>
+    .hack-shell { display:grid; grid-template-columns:minmax(0,1fr) 282px; gap:12px; align-items:start; }
+    .hack-main { display:grid; gap:12px; min-width:0; }
+    .hero,.guide,.roadmap-section,.workspace-section,.tools-section,.sidecar-sticky { border:1px solid #20252b; background:#0d0f11; }
+    .hero { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(230px,.65fr); gap:30px; align-items:end; min-height:250px; padding:28px; background:linear-gradient(120deg,rgba(96,165,250,.09),transparent 43%),repeating-linear-gradient(90deg,transparent 0,transparent 59px,rgba(255,255,255,.018) 60px),#0d0f11; }
+    .eyebrow,.field-label,.panel-title { color:#607080; font-size:.62rem; letter-spacing:.13em; text-transform:uppercase; }
+    .hero h1 { max-width:680px; margin:14px 0 18px; color:#f0f4f8; font-size:clamp(2.1rem,5vw,4.2rem); font-weight:600; letter-spacing:-.055em; line-height:.98; }
+    .hero p { max-width:630px; margin:0; color:#8793a0; font-size:.78rem; line-height:1.65; }
+    .progress-block { display:grid; grid-template-columns:auto 1fr; gap:9px 13px; align-items:end; }
+    .progress-number { color:var(--blue); font-size:2.3rem; }
+    .progress-copy { display:grid; gap:4px; }
+    .progress-copy strong { color:#c7d0da; font-size:.68rem; }
+    .progress-copy span { color:#596573; font-size:.59rem; }
+    .progress-track { grid-column:1/-1; height:3px; background:#222a31; }
+    .progress-track span { display:block; height:100%; background:var(--blue); }
+    .guide,.roadmap-section,.workspace-section,.tools-section { padding:20px; }
+    .section-headline,.proof-head,.workspace-head,.workspace-footer,.tool-head { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; }
+    .section-headline { margin-bottom:18px; }
+    .section-headline h2,.sidecar h2 { margin:5px 0 0; color:#e2e8ee; font-size:1rem; font-weight:600; }
+    .section-note,.section-headline>code { max-width:52%; color:#5c6874; font-size:.61rem; text-align:right; overflow-wrap:anywhere; }
+    .mission-state { align-self:start; padding:3px 6px; font-size:.54rem; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap; }
+    .state-ready,.state-active { color:#7ab6eb; background:#142332; }
+    .state-verified { color:#72cf92; background:#13281d; }
+    .state-locked { color:#626b74; background:#1a1c1f; }
+    .guide-intro { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .guide-intro>div { padding:13px; border:1px solid #222830; background:#101317; }
+    .guide-intro .lab-boundary { grid-column:1/-1; border-color:#3a2d20; background:#17130f; }
+    .guide-intro p { margin:7px 0 0; color:#929eaa; font-size:.68rem; line-height:1.55; }
+    .guide-grid { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(210px,.75fr); gap:8px; margin-top:8px; }
+    .steps-panel,.concept-panel,.proof-panel { border:1px solid #222830; background:#101317; padding:14px; }
+    .step { display:grid; grid-template-columns:25px minmax(0,1fr); gap:10px; padding:13px 0; border-top:1px solid #252b32; }
+    .step:first-of-type { margin-top:10px; }
+    .step-number { color:#536170; font-size:.61rem; }
+    .step h3 { margin:0; color:#d4dce5; font-size:.72rem; font-weight:600; }
+    .step p,.term p { margin:6px 0 0; color:#75818e; font-size:.63rem; line-height:1.55; }
+    .command-row { display:flex; align-items:stretch; gap:0; margin-top:9px; }
+    .command-row code,.mission-actions code { display:block; flex:1; padding:8px; background:#090b0d; color:#88b9e5; font-size:.61rem; overflow-wrap:anywhere; }
+    .copy-command { border:1px solid #2c3d4c; background:#101b24; color:#7faed5; font:inherit; font-size:.57rem; cursor:pointer; }
+    .expected { margin-top:7px; color:#697582; font-size:.59rem; line-height:1.45; }
+    .expected span,.tool-strip>span,.mission-boundary span,.mission-proof span,.use-when span { margin-right:7px; color:#4e5a67; font-size:.53rem; text-transform:uppercase; }
+    .term { padding:11px 0; border-top:1px solid #252b32; }
+    .term:first-of-type { margin-top:10px; }
+    .term strong { color:#aebac6; font-size:.67rem; }
+    .tool-strip { display:flex; flex-wrap:wrap; gap:5px; margin-top:12px; padding-top:11px; border-top:1px solid #252b32; }
+    .tool-strip code { color:#6e9bc2; font-size:.57rem; }
+    .proof-panel { margin-top:8px; }
+    .proof-head strong { display:block; margin-top:6px; color:#c5ced7; font-size:.7rem; }
+    #refresh-proof { padding:6px 9px; border:1px solid #31506d; background:transparent; color:#82b7e6; font:inherit; font-size:.6rem; cursor:pointer; }
+    .check-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-top:13px; }
+    .proof-check { display:grid; gap:5px; padding:10px; border:1px solid #272d34; }
+    .proof-check>span { font-size:.52rem; text-transform:uppercase; }
+    .proof-check strong { color:#b3bdc7; font-size:.62rem; }
+    .proof-check small { color:#606d79; font-size:.56rem; line-height:1.4; }
+    .proof-check.passed { border-color:#254632; }
+    .proof-check.passed>span { color:#69c88b; }
+    .proof-check.pending>span { color:#d9a34d; }
+    .no-checkmark { margin:12px 0 0; color:#6f7a86; font-size:.61rem; line-height:1.55; }
+    .roadmap { display:grid; gap:8px; }
+    .module { border:1px solid #242a31; background:#101317; }
+    .module>header { display:grid; grid-template-columns:30px minmax(0,1fr) auto; gap:10px; padding:14px; }
+    .module-number { color:#536170; font-size:.62rem; }
+    .module h3 { margin:0; color:#d3dbe4; font-size:.78rem; }
+    .module header p { margin:6px 0 0; color:#697682; font-size:.61rem; line-height:1.5; }
+    .module-locked { opacity:.61; }
+    .module-active { border-color:#304d68; }
+    .module-verified { border-color:#264733; }
+    .module-meta { display:flex; justify-content:space-between; gap:10px; padding:8px 14px; border-top:1px solid #242a31; color:#56616e; font-size:.56rem; }
+    .mission-list { border-top:1px solid #242a31; }
+    .mission summary { display:grid; grid-template-columns:8px minmax(0,1fr) auto; gap:10px; align-items:center; padding:11px 14px; border-bottom:1px solid #22282e; cursor:pointer; list-style:none; }
+    .mission summary::-webkit-details-marker { display:none; }
+    .mission summary strong,.mission summary small { display:block; }
+    .mission summary strong { color:#aeb8c3; font-size:.65rem; }
+    .mission summary small { margin-top:3px; color:#55616e; font-size:.55rem; line-height:1.4; }
+    .mission-dot { width:6px; height:6px; border-radius:50%; background:#4f5862; }
+    .mission-dot.ready { background:#5b9fd8; }
+    .mission-dot.verified { background:#58bd7c; }
+    .mission-detail { padding:14px 32px; background:#0c0f12; }
+    .mission-detail>p { margin:0 0 11px; color:#7b8793; font-size:.63rem; line-height:1.6; }
+    .mission-boundary,.mission-proof { padding:7px 0; border-top:1px solid #20262c; color:#8995a1; font-size:.6rem; line-height:1.45; }
+    .mini-checks { display:grid; gap:5px; margin-top:9px; }
+    .mini-checks>div { display:grid; grid-template-columns:7px minmax(0,1fr); gap:2px 7px; align-items:start; font-size:.58rem; }
+    .mini-checks i { width:5px; height:5px; margin-top:3px; border-radius:50%; background:#b37e3d; }
+    .mini-checks .passed i { background:#58bd7c; }
+    .mini-checks span { color:#a8b2bc; }
+    .mini-checks small { grid-column:2; color:#596571; }
+    .mission-actions { display:grid; gap:5px; margin-top:10px; }
+    .workspace-grid,.tool-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+    .workspace,.tool { padding:14px; border:1px solid #242a31; background:#101317; }
+    .workspace.active { border-color:#3d6284; }
+    .workspace-head>div>span { color:#65717d; font-size:.55rem; text-transform:uppercase; }
+    .workspace h3,.tool h3 { margin:5px 0 0; color:#d2dae2; font-size:.76rem; }
+    .scope-pill,.availability,.risk { padding:3px 6px; font-size:.51rem; text-transform:uppercase; }
+    .scope-pill.ready,.availability.installed { color:#6ccb8e; background:#13281d; }
+    .scope-pill.incomplete { color:#dfa74b; background:#302615; }
+    .workspace-path { display:block; margin:12px 0; color:#586571; font-size:.56rem; overflow-wrap:anywhere; }
+    .workspace-counts { display:grid; grid-template-columns:repeat(5,1fr); border:1px solid #242a31; }
+    .workspace-counts div { padding:8px 4px; border-right:1px solid #242a31; text-align:center; }
+    .workspace-counts div:last-child { border:0; }
+    .workspace-counts strong,.workspace-counts span { display:block; }
+    .workspace-counts strong { color:#c0cad3; font-size:.72rem; }
+    .workspace-counts span { margin-top:4px; color:#505c68; font-size:.49rem; }
+    .workspace-footer { align-items:center; margin-top:11px; color:#596571; font-size:.56rem; }
+    .workspace-select,.tool-filter { padding:5px 8px; border:1px solid #303942; background:transparent; color:#7d8995; font:inherit; font-size:.57rem; cursor:pointer; }
+    .workspace-select:disabled { border-color:transparent; color:#65c187; }
+    .tool-controls { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:10px; }
+    .tool-filter.selected,.tool-filter:hover { border-color:#4b7192; color:#87b9e4; }
+    #tool-search { margin-left:auto; min-width:155px; padding:5px 7px; border:1px solid #303942; background:#090b0d; color:#c4cdd6; font:inherit; font-size:.59rem; }
+    .tool[hidden] { display:none; }
+    .tool-head { align-items:center; }
+    .tool-head h3 { margin:0; }
+    .tool-head>div { display:flex; gap:4px; }
+    .availability.missing { color:#68737e; background:#1a1d20; }
+    .risk-low { color:#6fc88d; background:#14251a; }.risk-medium { color:#d6b35c; background:#2c2515; }.risk-high { color:#df8464; background:#301d16; }.risk-advanced { color:#d47680; background:#30181d; }
+    .tool-meta { margin:8px 0; color:#53606c; font-size:.53rem; text-transform:uppercase; }
+    .tool>p { margin:0; color:#74808c; font-size:.61rem; line-height:1.5; }
+    .use-when { margin-top:10px; padding-top:8px; border-top:1px solid #242a31; color:#87939f; font-size:.59rem; line-height:1.5; }
+    .sidecar-sticky { position:sticky; top:12px; padding:18px; }
+    .sidecar h2 { margin-bottom:15px; }
+    .method { display:grid; gap:9px; margin:0; padding:0; list-style:none; }
+    .method li { display:grid; grid-template-columns:20px 1fr; gap:8px; }
+    .method li>span { display:grid; place-items:center; width:18px; height:18px; border:1px solid #314252; color:#78a8d0; font-size:.55rem; }
+    .method strong,.method small { display:block; }
+    .method strong { color:#abb6c1; font-size:.63rem; }
+    .method small { margin-top:2px; color:#596571; font-size:.55rem; line-height:1.4; }
+    .side-block { display:grid; gap:8px; margin-top:17px; padding-top:15px; border-top:1px solid #252b31; }
+    .side-block>strong { color:#bdc7d0; font-size:.71rem; }
+    .side-block>code { color:#7dacd4; font-size:.56rem; overflow-wrap:anywhere; }
+    .side-block>p { margin:0; color:#6c7884; font-size:.6rem; line-height:1.55; }
+    .boundary { border-top-color:#4a2e20; }
+    .live-stats { display:flex; flex-wrap:wrap; gap:5px; }
+    .live-stats span { padding:3px 5px; background:#161a1e; color:#6f7b87; font-size:.52rem; }
+    .data-model>div { display:grid; grid-template-columns:7px 55px 1fr; gap:7px; align-items:center; }
+    .data-model i { width:5px; height:5px; }.data-model i.raw { background:#c17960; }.data-model i.normalized { background:#6292bd; }.data-model i.evidence { background:#61bb7f; }
+    .data-model strong { color:#aeb8c1; font-size:.57rem; }.data-model small { color:#56626e; font-size:.51rem; }
+    #hack-status { min-height:1rem; margin-top:13px; color:#80b6e4; font-size:.59rem; }
+    @media(max-width:960px){.hack-shell{grid-template-columns:1fr}.sidecar{grid-row:1}.sidecar-sticky{position:static}.guide-grid{grid-template-columns:1fr}}
+    @media(max-width:720px){.hero,.guide-intro,.workspace-grid,.tool-grid{grid-template-columns:1fr}.guide-intro .lab-boundary{grid-column:auto}.check-grid{grid-template-columns:1fr}.workspace-counts{grid-template-columns:repeat(3,1fr)}.section-headline{align-items:flex-start}.tool-controls #tool-search{width:100%;margin-left:0}.module>header{grid-template-columns:25px 1fr}.module>header>.mission-state{grid-column:2}.mission summary{grid-template-columns:7px 1fr}.mission summary>.mission-state{grid-column:2}.hero h1{font-size:2.5rem}}
+  </style>
+
+  <script>
+    const status = document.getElementById('hack-status');
+
+    document.querySelectorAll<HTMLButtonElement>('.copy-command').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const command = button.dataset.command ?? '';
+        try {
+          await navigator.clipboard.writeText(command);
+          button.textContent = 'copied';
+          setTimeout(() => { button.textContent = 'copy'; }, 1200);
+        } catch {
+          if (status) status.textContent = 'clipboard unavailable — select the command manually';
+        }
+      });
+    });
+
+    document.getElementById('refresh-proof')?.addEventListener('click', () => location.reload());
+
+    document.querySelectorAll<HTMLButtonElement>('.workspace-select').forEach((button) => {
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        const response = await fetch('/api/red-team', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ action: 'workspace', workspaceId: button.dataset.workspace }),
+        });
+        if (response.ok) location.reload();
+        else {
+          const result = await response.json();
+          if (status) status.textContent = result.error ?? 'workspace update failed';
+          button.disabled = false;
+        }
+      });
+    });
+
+    let category = 'all';
+    const search = document.querySelector<HTMLInputElement>('#tool-search');
+    const tools = [...document.querySelectorAll<HTMLElement>('.tool')];
+    function filterTools() {
+      const query = search?.value.trim().toLowerCase() ?? '';
+      for (const tool of tools) {
+        const categoryMatches = category === 'all' || tool.dataset.category === category;
+        const queryMatches = !query || tool.dataset.search?.includes(query);
+        tool.hidden = !categoryMatches || !queryMatches;
+      }
+    }
+    document.querySelectorAll<HTMLButtonElement>('.tool-filter').forEach((button) => {
+      button.addEventListener('click', () => {
+        category = button.dataset.category ?? 'all';
+        document.querySelectorAll('.tool-filter').forEach((item) => item.classList.remove('selected'));
+        button.classList.add('selected');
+        filterTools();
+      });
+    });
+    search?.addEventListener('input', filterTools);
+  </script>
+</AppLayout>
