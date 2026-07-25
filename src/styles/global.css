@@ -2133,3 +2133,106 @@ main {
 .code-legend-grid .badge {
   margin-right: 6px;
 }
+
+/* OMP isolated shadow control */
+.omp-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.omp-boundary {
+  border-left: 3px solid var(--yellow);
+}
+
+.omp-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.omp-card {
+  min-width: 0;
+  border: 1px solid #242424;
+  padding: 12px;
+  background: #151515;
+}
+
+.omp-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.omp-card-head strong {
+  color: var(--blue);
+  font-size: 0.82rem;
+}
+
+.omp-title {
+  margin: 8px 0 10px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.omp-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  margin: 0 0 10px;
+  font-size: 0.68rem;
+}
+
+.omp-meta div {
+  min-width: 0;
+}
+
+.omp-meta dt {
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.omp-meta dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.omp-issue,
+.omp-error {
+  margin: 8px 0;
+  color: var(--red);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.omp-output {
+  max-height: 12rem;
+  margin: 8px 0;
+  overflow: auto;
+  border-left: 2px solid var(--green);
+  padding: 8px;
+  background: #101510;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.omp-evidence {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.64rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 700px) {
+  .omp-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .omp-meta {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

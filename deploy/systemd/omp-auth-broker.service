@@ -1,0 +1,22 @@
+[Unit]
+Description=OMP shadow credential broker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=HOME=/home/merulox
+ExecStartPre=/run/current-system/sw/bin/mkdir -p /home/merulox/.local/share/aperture/omp-broker
+ExecStartPre=-/run/current-system/sw/bin/podman network create --internal --subnet 10.89.1.0/24 --gateway 10.89.1.1 aperture-omp-control
+ExecStartPre=-/run/current-system/sw/bin/podman network create --internal --subnet 10.89.0.0/24 --gateway 10.89.0.1 aperture-omp-shadow
+ExecStartPre=/run/current-system/sw/bin/bash -lc 'test "$(/run/current-system/sw/bin/podman network inspect aperture-omp-control --format "{{range .Subnets}}{{.Subnet}}{{end}}")" = "10.89.1.0/24"'
+ExecStartPre=/run/current-system/sw/bin/bash -lc 'test "$(/run/current-system/sw/bin/podman network inspect aperture-omp-shadow --format "{{range .Subnets}}{{.Subnet}}{{end}}")" = "10.89.0.0/24"'
+ExecStartPre=-/run/current-system/sw/bin/podman rm -f aperture-omp-broker
+ExecStart=/run/current-system/sw/bin/podman run --name aperture-omp-broker --network aperture-omp-control:ip=10.89.1.2 -p 127.0.0.1:49556:49556 --read-only --cap-drop=all --security-opt=no-new-privileges --tmpfs /tmp:rw,nosuid,nodev,size=64m -v /home/merulox/.local/bin/omp:/usr/local/bin/omp:ro -v /home/merulox/.local/share/aperture/omp-broker:/root/.omp:rw -v /home/merulox/.omp/natives/17.0.5/pi_natives.linux-x64-modern.node:/root/.omp/natives/17.0.5/pi_natives.linux-x64-modern.node:ro docker.io/library/archlinux@sha256:1f83ba0580a15cd6ad1d02d62ad432ddc940f53f07d0e39c8982d6c9c74e53e0 /usr/local/bin/omp auth-broker serve --bind=0.0.0.0:49556
+ExecStop=-/run/current-system/sw/bin/podman stop --time 10 aperture-omp-broker
+ExecStopPost=-/run/current-system/sw/bin/podman rm -f aperture-omp-broker
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

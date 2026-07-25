@@ -1,0 +1,9 @@
+---
+import AppLayout from '../layouts/AppLayout.astro';
+import { CityPrototype } from '../components/city/CityPrototype';
+import '../styles/city.css';
+---
+<AppLayout title="City" page="city" subtitle="city">
+  <span slot="topbar-extra" class="city-simulation-badge">simulation</span>
+  <CityPrototype client:load />
+</AppLayout>

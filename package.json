@@ -16,6 +16,7 @@
     "astro": "^5.0.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "react-force-graph-2d": "^1.29.1"
+    "react-force-graph-2d": "^1.29.1",
+    "yaml": "^2.9.0"
   }
 }
