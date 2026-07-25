@@ -31,6 +31,7 @@ Never delete rows — mark as done or cancelled._
 | ID | Status | Priority | Safety | Title | Brief | Notes |
 |----|--------|----------|--------|-------|-------|-------|
 | T-00 | `done` | — | — | Template row | — | Replace with real tasks |
+| AP-32 | `done` | P1 | `[DATA][DEPLOY]` | Agentic QA Learning tab | `docs/planning/AP-32-learning-tab.md` | Independent review PASS 2026-07-24; build, live service, desktop, 390px, and canonical-data parity verified |
 
 ---
 

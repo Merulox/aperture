@@ -1,13 +1,15 @@
 # Aperture — Project Context
 
-Last updated: 2026-06-05
-Updated by: architect (AP-01 reviewed + accepted)
+Last updated: 2026-07-24
+Updated by: architect (AP-32 independently reviewed and accepted)
 
 ---
 
 ## Current state summary
 
 AP-01 dashboard is DONE and DEPLOYED. Live at https://aperture.merulox.com (401 without auth, 200 with m/st). SSR Astro, 5 sections from live state files. Committed at 15afd3f.
+
+AP-32 Learning tab is live and reads the 13-skill Agentic QA curriculum from `~/kernel/project/LEARNING.json`. Independent review passed build, live service, desktop, 390px overflow, disclosure content, and canonical-data parity checks.
 
 ## Deployment (2026-06-05)
 - App runs as `aperture.service` (systemd --user), enabled, on 127.0.0.1:8788. Log: /tmp/aperture.log
@@ -23,6 +25,7 @@ AP-01 dashboard is DONE and DEPLOYED. Live at https://aperture.merulox.com (401 
 - AP-01: full dashboard (src/middleware.ts, src/lib/data.ts, src/styles/global.css, src/pages/index.astro)
 - Reviewed against live state — PASS. Build clean, auth gate works, all 5 sections live.
 - .astro/ added to gitignore during review
+- AP-32: Agentic QA Learning tab — independent review PASS; live and accepted
 
 ## What is in flight
 
