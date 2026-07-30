@@ -1,11 +1,13 @@
 import type { APIRoute } from 'astro';
-import { readClients, addClient, removeClient, getBorealServiceHealth } from '../../lib/boreal';
+import { readClients, addClient, removeClient, getBorealServiceHealth, getHormoziStatus, getOgilvyStatus } from '../../lib/boreal';
 import type { BorealClient } from '../../lib/boreal';
 
 export const GET: APIRoute = async () => {
   const clients = readClients();
   const services = getBorealServiceHealth();
-  return new Response(JSON.stringify({ clients, services }), {
+  const hormozi = getHormoziStatus();
+  const ogilvy = getOgilvyStatus();
+  return new Response(JSON.stringify({ clients, services, hormozi, ogilvy }), {
     headers: { 'content-type': 'application/json; charset=utf-8' },
   });
 };

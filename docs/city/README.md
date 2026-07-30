@@ -1,6 +1,6 @@
 # Aperture City
 
-**Status:** vision locked; architecture candidate; implementation limited to an explicitly labelled low-fidelity prototype.  
+**Status:** vision locked; architecture candidate; Genesis runtime-v2 vertical slice live and verified; remaining residents and capability approvals are explicitly labelled fixtures.  
 **Owner:** merulox.  
 **Host product:** Aperture, initially as `/city`, designed to become its primary home.
 
@@ -36,7 +36,7 @@ The first production-capable vertical slice succeeds only when the operator can:
 notice → inspect → understand → converse → decide → deliver → observe changed state
 ```
 
-A low-fidelity fixture-backed prototype may validate interaction and visual semantics, but it must say **SIMULATION** and does not satisfy the production control-loop proof.
+The Genesis path now satisfies this proof for durable operator messages: the City reads runtime state, persists a message, starts a separate transient wake, and reconciles the resulting event, run, trace, decision, and wake receipt. Fixture-backed interactions remain labelled **SIMULATION** and do not count as production evidence.
 
 ## Documents
 
@@ -53,8 +53,8 @@ A low-fidelity fixture-backed prototype may validate interaction and visual sema
 - City Hall, one capability district, Genesis home, Victorique home, one project workplace, one temporary Genesis worker.
 - Resident selection and semantic zoom.
 - Genesis inspector: state, goal, worker, blocker, resources, recent trail, contextual chat.
-- One pending approval visible both at Genesis and City Hall.
-- Approval response and message/wake semantics represented end to end in the model.
+- One fixture approval visible both at Genesis and City Hall; capability commands remain disabled.
+- Live Genesis runtime-v2 snapshot, durable `message.send`, explicit asynchronous `resident.wake`, and persisted response reconciliation.
 
 ### Not in scope
 

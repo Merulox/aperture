@@ -17,9 +17,29 @@ interface ServiceStatus {
   active: boolean;
 }
 
+interface HormoziStatus {
+  health: 'healthy' | 'idle' | 'unavailable';
+  activeDoctrineVersions: string[];
+  totalGenerated: number;
+  generatedToday: number;
+  lastGeneratedAt: string | null;
+  error: string | null;
+}
+
+interface OgilvyStatus {
+  health: 'healthy' | 'idle' | 'unavailable';
+  activeDoctrineVersions: string[];
+  totalGenerated: number;
+  generatedToday: number;
+  lastGeneratedAt: string | null;
+  error: string | null;
+}
+
 interface BorealData {
   clients: Record<string, Client>;
   services: ServiceStatus[];
+  hormozi: HormoziStatus;
+  ogilvy: OgilvyStatus;
 }
 
 interface LeadGrouped {
@@ -182,6 +202,245 @@ function ClientRow({ phone, client, onRemoved }: { phone: string; client: Client
       {client.notes && <span className="client-notes">{client.notes}</span>}
       <button className="btn btn-remove" onClick={() => void remove()} disabled={removing}>×</button>
     </div>
+  );
+}
+
+// ── Hormozi resident: proposals + review loop ──────────────────────────────
+
+interface HormoziProposal {
+  id: number;
+  actionKey: string;
+  actionType: string;
+  summary: string;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+interface HormoziActivity {
+  id: number;
+  actionType: string;
+  summary: string;
+  createdAt: string;
+  reviewedAt: string | null;
+}
+
+const HORMOZI_MANDATE_TEXT =
+  "Own sales-conversation generation quality and the RESPONDED\u2192BOOKED learning loop for " +
+  "Bor\u00e9al Num\u00e9rique. Propose falsifiable hypotheses grounded in observed crm.db failure " +
+  "modes and sourced research; never self-promote a hypothesis into SALES_DOCTRINE or an active " +
+  "experiment \u2014 a human reviews and decides. Outward voice stays \"Brad, Bor\u00e9al " +
+  "Num\u00e9rique\"; \"Hormozi\" never surfaces to a lead.";
+
+function HormoziProposalsSection() {
+  const [pending, setPending] = useState<HormoziProposal[]>([]);
+  const [recent, setRecent] = useState<HormoziActivity[]>([]);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const load = async () => {
+    try {
+      const res = await fetch('/api/hormozi');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { pending: HormoziProposal[]; recent: HormoziActivity[]; error: string | null };
+      setPending(data.pending);
+      setRecent(data.recent);
+      setError(data.error ?? '');
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const review = async (id: number, decision: 'approved' | 'declined') => {
+    setBusyId(id);
+    try {
+      const res = await fetch('/api/hormozi', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ actionId: id, decision }),
+      });
+      const result = await res.json() as { ok: boolean; error?: string };
+      if (!result.ok) setError(result.error ?? 'review failed');
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <>
+      <p className="state-entry" style={{ fontSize: '0.85em', opacity: 0.75, marginBottom: 10 }}>
+        {HORMOZI_MANDATE_TEXT}
+      </p>
+      {error && <p className="state-entry" style={{ color: 'var(--red)' }}>{error}</p>}
+
+      <div className="label" style={{ marginTop: 8, marginBottom: 4 }}>
+        objectifs en attente ({pending.length})
+      </div>
+      {pending.length === 0 ? (
+        <p className="state-entry">{'— aucune hypothèse en attente —'}</p>
+      ) : (
+        <div className="service-list">
+          {pending.map((p) => (
+            <div key={p.id} className="service-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+              <span className="service-name">{p.summary}</span>
+              <span style={{ fontSize: '0.72em', opacity: 0.65 }}>{shortTs(p.createdAt)}{' · '}{p.actionKey}</span>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  className="btn"
+                  disabled={busyId === p.id}
+                  onClick={() => void review(p.id, 'approved')}
+                >approuver</button>
+                <button
+                  className="btn"
+                  disabled={busyId === p.id}
+                  onClick={() => void review(p.id, 'declined')}
+                >refuser</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="label" style={{ marginTop: 12, marginBottom: 4 }}>{'activité récente'}</div>
+      <div className="service-list">
+        {recent.slice(0, 8).map((a) => (
+          <div key={a.id} className="service-row">
+            <span className={`badge badge-${a.reviewedAt || a.actionType.startsWith('hypothesis_') && a.actionType !== 'hypothesis_proposed' ? 'green' : 'muted'}`}>
+              {a.actionType.replace('hypothesis_', '')}
+            </span>
+            <span className="service-name" style={{ fontSize: '0.78em' }}>{a.summary}</span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+// ── Ogilvy resident: content proposals + review loop ────────────────────────
+
+interface OgilvyProposal {
+  id: number;
+  actionKey: string;
+  actionType: string;
+  summary: string;
+  detail: Record<string, unknown>;
+  createdAt: string;
+}
+
+interface OgilvyActivity {
+  id: number;
+  actionType: string;
+  summary: string;
+  createdAt: string;
+  reviewedAt: string | null;
+}
+
+const OGILVY_MANDATE_TEXT =
+  "Own money-optimized content generation and attribution learning for Boréal Numérique's " +
+  "Facebook/Instagram acquisition content — the top-of-funnel layer feeding leads into the funnel " +
+  "Hormozi's reactive engine closes. Never publishes directly — approval appends the post to " +
+  "04-content-batch.md for content-push/fb-post to deliver unchanged; a human reviews and decides.";
+
+function detailString(detail: Record<string, unknown>, key: string): string {
+  const value = detail[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function OgilvyProposalsSection() {
+  const [pending, setPending] = useState<OgilvyProposal[]>([]);
+  const [recent, setRecent] = useState<OgilvyActivity[]>([]);
+  const [error, setError] = useState('');
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const load = async () => {
+    try {
+      const res = await fetch('/api/ogilvy');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { pending: OgilvyProposal[]; recent: OgilvyActivity[]; error: string | null };
+      setPending(data.pending);
+      setRecent(data.recent);
+      setError(data.error ?? '');
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  const review = async (id: number, decision: 'approved' | 'declined') => {
+    setBusyId(id);
+    try {
+      const res = await fetch('/api/ogilvy', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ actionId: id, decision }),
+      });
+      const result = await res.json() as { ok: boolean; error?: string };
+      if (!result.ok) setError(result.error ?? 'review failed');
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <>
+      <p className="state-entry" style={{ fontSize: '0.85em', opacity: 0.75, marginBottom: 10 }}>
+        {OGILVY_MANDATE_TEXT}
+      </p>
+      {error && <p className="state-entry" style={{ color: 'var(--red)' }}>{error}</p>}
+
+      <div className="label" style={{ marginTop: 8, marginBottom: 4 }}>
+        posts en attente ({pending.length})
+      </div>
+      {pending.length === 0 ? (
+        <p className="state-entry">{'— aucun post en attente —'}</p>
+      ) : (
+        <div className="service-list">
+          {pending.map((p) => (
+            <div key={p.id} className="service-row" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+              <span className="service-name">{p.summary}</span>
+              <span style={{ fontSize: '0.72em', opacity: 0.65 }}>{shortTs(p.createdAt)}{' · '}src={detailString(p.detail, 'campaign_code') || '—'}</span>
+              {detailString(p.detail, 'copy_text') && (
+                <pre style={{ fontSize: '0.72em', whiteSpace: 'pre-wrap', opacity: 0.85, margin: 0, maxWidth: '100%' }}>
+                  {detailString(p.detail, 'copy_text')}
+                </pre>
+              )}
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  className="btn"
+                  disabled={busyId === p.id}
+                  onClick={() => void review(p.id, 'approved')}
+                >approuver</button>
+                <button
+                  className="btn"
+                  disabled={busyId === p.id}
+                  onClick={() => void review(p.id, 'declined')}
+                >refuser</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="label" style={{ marginTop: 12, marginBottom: 4 }}>{'activité récente'}</div>
+      <div className="service-list">
+        {recent.slice(0, 8).map((a) => (
+          <div key={a.id} className="service-row">
+            <span className={`badge badge-${a.reviewedAt || a.actionType.startsWith('content_') && a.actionType !== 'content_proposed' ? 'green' : 'muted'}`}>
+              {a.actionType.replace('content_', '')}
+            </span>
+            <span className="service-name" style={{ fontSize: '0.78em' }}>{a.summary}</span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -859,6 +1118,8 @@ export function BorealPanel() {
 
   const clients = data ? Object.entries(data.clients) : [];
   const services = data?.services ?? [];
+  const hormozi = data?.hormozi;
+  const ogilvy = data?.ogilvy;
 
   return (
     <div className="boreal-page">
@@ -896,6 +1157,82 @@ export function BorealPanel() {
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="panel" aria-labelledby="hormozi-heading">
+          <div className="section-head">
+            <div className="label" id="hormozi-heading">hormozi — resident</div>
+            {hormozi && (
+              <span className={`badge badge-${hormozi.health === 'healthy' ? 'green' : hormozi.health === 'idle' ? 'muted' : 'red'}`}>
+                {hormozi.health}
+              </span>
+            )}
+          </div>
+          {!hormozi ? (
+            <p className="state-entry">— loading —</p>
+          ) : hormozi.error ? (
+            <p className="state-entry" style={{ color: 'var(--red)' }}>{hormozi.error}</p>
+          ) : (
+            <div className="service-list">
+              <div className="service-row">
+                <span className="service-name">generated today</span>
+                <span className="badge badge-muted">{hormozi.generatedToday}</span>
+              </div>
+              <div className="service-row">
+                <span className="service-name">generated total</span>
+                <span className="badge badge-muted">{hormozi.totalGenerated}</span>
+              </div>
+              <div className="service-row">
+                <span className="service-name">last generation</span>
+                <span className="badge badge-muted">{hormozi.lastGeneratedAt ? shortTs(hormozi.lastGeneratedAt) : '—'}</span>
+              </div>
+              {hormozi.activeDoctrineVersions.map((v) => (
+                <div key={v} className="service-row">
+                  <span className="badge badge-green">doctrine</span>
+                  <span className="service-name">{v}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <HormoziProposalsSection />
+        </section>
+
+        <section className="panel" aria-labelledby="ogilvy-heading">
+          <div className="section-head">
+            <div className="label" id="ogilvy-heading">ogilvy — resident</div>
+            {ogilvy && (
+              <span className={`badge badge-${ogilvy.health === 'healthy' ? 'green' : ogilvy.health === 'idle' ? 'muted' : 'red'}`}>
+                {ogilvy.health}
+              </span>
+            )}
+          </div>
+          {!ogilvy ? (
+            <p className="state-entry">— loading —</p>
+          ) : ogilvy.error ? (
+            <p className="state-entry" style={{ color: 'var(--red)' }}>{ogilvy.error}</p>
+          ) : (
+            <div className="service-list">
+              <div className="service-row">
+                <span className="service-name">generated today</span>
+                <span className="badge badge-muted">{ogilvy.generatedToday}</span>
+              </div>
+              <div className="service-row">
+                <span className="service-name">generated total</span>
+                <span className="badge badge-muted">{ogilvy.totalGenerated}</span>
+              </div>
+              <div className="service-row">
+                <span className="service-name">last generation</span>
+                <span className="badge badge-muted">{ogilvy.lastGeneratedAt ? shortTs(ogilvy.lastGeneratedAt) : '—'}</span>
+              </div>
+              {ogilvy.activeDoctrineVersions.map((v) => (
+                <div key={v} className="service-row">
+                  <span className="badge badge-green">doctrine</span>
+                  <span className="service-name">{v}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <OgilvyProposalsSection />
         </section>
 
         <LeadsSection />

@@ -32,6 +32,7 @@ Never delete rows — mark as done or cancelled._
 |----|--------|----------|--------|-------|-------|-------|
 | T-00 | `done` | — | — | Template row | — | Replace with real tasks |
 | AP-32 | `done` | P1 | `[DATA][DEPLOY]` | Agentic QA Learning tab | `docs/planning/AP-32-learning-tab.md` | Independent review PASS 2026-07-24; build, live service, desktop, 390px, and canonical-data parity verified |
+| AP-34 | `done` | P1 | `[DATA][DEPLOY]` | Live Genesis City bridge | `docs/city/README.md` | Verified 2026-07-25: authenticated GET snapshot, idempotent message enqueue, detached wake, persisted succeeded run/trace/decision, durable wake receipt, desktop, and 390px |
 
 ---
 

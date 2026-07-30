@@ -15,12 +15,16 @@ const { title, page, subtitle } = Astro.props;
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" type="image/png" href="/aperture-logo.png" />
   <title>{title} · Aperture</title>
 </head>
 <body>
   <main>
     <header class="topbar">
-      <div class="brand">aperture{subtitle ? ` / ${subtitle}` : ''}</div>
+      <div class="brand">
+        <img src="/aperture-logo.png" alt="" class="brand-logo" />
+        <span>aperture{subtitle ? ` / ${subtitle}` : ''}</span>
+      </div>
       <div class="meta">
         {NAV.map(({ id, href, label, external }) => (
           page === id

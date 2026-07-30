@@ -10,7 +10,10 @@ interface NavProps {
 export function Nav({ page, subtitle, children }: NavProps) {
   return (
     <header className="topbar">
-      <div className="brand">aperture{subtitle ? ` / ${subtitle}` : ''}</div>
+      <div className="brand">
+        <img src="/aperture-logo.png" alt="" className="brand-logo" />
+        <span>aperture{subtitle ? ` / ${subtitle}` : ''}</span>
+      </div>
       <div className="meta">
         {NAV.map(({ id, href, label, external }) =>
           page === id
