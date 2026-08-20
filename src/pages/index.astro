@@ -4,7 +4,7 @@ import { getDashboardData } from '../lib/data';
 import { getNextActions } from '../lib/actions';
 import NowPanel from '../components/now/NowPanel.astro';
 
-const [{ health, genesis, vitals, mode, monitor, backup, system }, actions] = await Promise.all([
+const [{ health, genesis, genesisPosture, vitals, mode, monitor, backup, system }, actions] = await Promise.all([
   getDashboardData(),
   getNextActions(),
 ]);
@@ -12,9 +12,6 @@ const [{ health, genesis, vitals, mode, monitor, backup, system }, actions] = aw
 const statusTone = toneForStatus(health.status);
 const vitalsAgeDays = ageInDays(vitals.ts);
 const vitalsStale = vitalsAgeDays > 7;
-const ledgerGroups = Object.entries(
-  Object.groupBy(monitor.pendingItems, (item) => item.id.charAt(0)),
-).sort(([a], [b]) => a.localeCompare(b));
 
 function toneForStatus(status: string): string {
   if (['ACTIVE', 'OK'].includes(status)) return 'green';
@@ -125,11 +122,45 @@ function ageInDays(timestamp: string): number {
       </section>
 
       <section class="panel panel-wide" aria-labelledby="genesis-heading">
-        <div class="label" id="genesis-heading">genesis state</div>
-        <p class="state-line">
-          tick {genesis.tick} · updated {genesis.updated} · active rule: {genesis.activeRule}
+        <div class="section-head">
+          <div class="label" id="genesis-heading">genesis posture</div>
+          <span class={`badge badge-${genesisPosture.mode === 'PAUSED / MONITOR-ONLY' ? 'green' : 'red'}`}>
+            {genesisPosture.mode}
+          </span>
+        </div>
+        <div class="service-table">
+          <div class="service-row">
+            <span class="service-name">legacy daemon</span>
+            <span class={`badge badge-${genesisPosture.daemon === 'active' ? 'red' : genesisPosture.daemon === 'failed' ? 'yellow' : 'green'}`}>
+              {genesisPosture.daemon}
+            </span>
+            <span class="service-action">legacy production path; runtime v2 cutover required before reuse</span>
+          </div>
+          <div class="service-row">
+            <span class="service-name">telegram ingress</span>
+            <span class={`badge badge-${genesisPosture.telegram === 'active' ? 'red' : 'green'}`}>
+              {genesisPosture.telegram}
+            </span>
+            <span class="service-action">paired with the legacy runtime</span>
+          </div>
+          <div class="service-row">
+            <span class="service-name">ambient voice</span>
+            <span class={`badge badge-${genesisPosture.voice === 'active' ? 'green' : 'yellow'}`}>
+              {genesisPosture.voice}
+            </span>
+            <span class="service-action">separate bounded interface</span>
+          </div>
+          <div class="service-row">
+            <span class="service-name">runtime v2</span>
+            <span class={`badge badge-${genesisPosture.runtimeV2 === 'VERIFIED / NOT DEPLOYED' ? 'green' : 'yellow'}`}>
+              {genesisPosture.runtimeV2}
+            </span>
+            <span class="service-action">{genesisPosture.backlogIds.length} backlog · {genesisPosture.backlogIds.join(', ') || 'none'}</span>
+          </div>
+        </div>
+        <p class="state-entry">
+          Historical continuity snapshot: tick {genesis.tick} · updated {genesis.updated} · {genesis.activeRule}
         </p>
-        <p class="state-entry">{genesis.latestEntry}</p>
       </section>
 
       <section class="panel panel-wide" aria-labelledby="decisions-heading">
@@ -334,33 +365,6 @@ function ageInDays(timestamp: string): number {
         </div>
       </section>
 
-      <section class="panel panel-wide" aria-labelledby="ledger-heading">
-        <div class="section-head">
-          <div class="label" id="ledger-heading">genesis bug ledger</div>
-          <span class="badge badge-yellow">{monitor.pendingItems.length} unresolved</span>
-        </div>
-        {
-          ledgerGroups.length > 0 ? (
-            <div class="ledger-groups">
-              {ledgerGroups.map(([prefix, items]) => (
-                <div class="ledger-group">
-                  <div class="ledger-prefix">{prefix}</div>
-                  <ul class="ledger-items">
-                    {items?.map((item) => (
-                      <li class="ledger-item">
-                        <span class="ledger-id">{item.id}</span>
-                        <span>{item.text}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p class="state-entry">— monitor feed unavailable —</p>
-          )
-        }
-      </section>
     </div>
 
     <dialog class="backup-dialog" data-swap-dialog aria-labelledby="swap-dialog-heading">

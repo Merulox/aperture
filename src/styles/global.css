@@ -707,44 +707,6 @@ main {
   grid-template-columns: 56px minmax(0, 1fr) minmax(78px, auto) minmax(78px, auto) 52px;
 }
 
-.ledger-groups {
-  display: grid;
-  gap: 18px;
-}
-
-.ledger-group {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 10px;
-}
-
-.ledger-prefix {
-  color: var(--blue);
-  font-size: 0.8rem;
-  font-weight: 700;
-}
-
-.ledger-items {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.ledger-item {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 8px;
-  color: var(--text);
-  font-size: 0.78rem;
-  line-height: 1.5;
-}
-
-.ledger-id {
-  color: var(--yellow);
-  font-weight: 700;
-}
 
 .nav-link {
   color: var(--blue);

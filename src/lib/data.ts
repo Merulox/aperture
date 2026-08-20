@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const HEALTH_PATH = '/home/merulox/obsidian/knowledge/projects/genesis/health.json';
 const LIVE_STATE_PATH = '/home/merulox/obsidian/knowledge/projects/genesis/live-state.md';
+const GENESIS_TASKS_PATH = '/home/merulox/projects/genesis/.agent/TASKS.md';
 // vitals.json was archived 2026-06-05 (stale since April). Kept as historical fallback;
 // the live signal is the monitor feed below.
 const VITALS_PATH = '/home/merulox/projects/realm/_archive/commons-stale/vitals.json';
@@ -79,6 +80,15 @@ export type GenesisState = {
   latestEntry: string;
 };
 
+export type GenesisPostureData = {
+  mode: 'PAUSED / MONITOR-ONLY' | 'LEGACY ACTIVE';
+  daemon: string;
+  telegram: string;
+  voice: string;
+  runtimeV2: 'VERIFIED / NOT DEPLOYED' | 'INCOMPLETE';
+  backlogIds: string[];
+};
+
 export type VitalsData = {
   ts: string;
   realm: {
@@ -115,23 +125,17 @@ export type ServiceHealth = {
   action?: string;
 };
 
-export type BugLedgerItem = {
-  id: string;
-  text: string;
-};
 
 type GenesisAudit = {
   ts?: string;
   services?: Record<string, string>;
   kill_switches?: Record<string, boolean | string>;
-  pending_items?: string[];
 };
 
 export type MonitorData = {
   ts: string;
   services: ServiceHealth[];
   killSwitches: Record<string, boolean | string>;
-  pendingItems: BugLedgerItem[];
 };
 
 export type SystemProcess = {
@@ -244,6 +248,7 @@ export type DashboardData = {
   health: HealthData;
   genesis: GenesisState;
   vitals: VitalsData;
+  genesisPosture: GenesisPostureData;
   mode: {
     current: string;
     goal: string;
@@ -266,6 +271,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   return {
     health,
     genesis: liveState,
+    genesisPosture: readGenesisPosture(),
     vitals,
     mode: {
       current: mode.current,
@@ -1022,6 +1028,48 @@ async function readLiveState(): Promise<GenesisState> {
   };
 }
 
+function readGenesisPosture(): GenesisPostureData {
+  const daemon = readServiceActiveState('genesis.service');
+  const telegram = readServiceActiveState('genesis-bridge.service');
+  const voice = readServiceActiveState('genesis-voice.service', true);
+  let taskContents = '';
+  try {
+    taskContents = readFileSync(GENESIS_TASKS_PATH, 'utf8');
+  } catch {
+    // Missing task state is represented as an incomplete runtime below.
+  }
+  const doneIds = new Set(
+    [...taskContents.matchAll(/^\|\s*(R2-\d+)\s*\|\s*`done`\s*\|/gm)].map((match) => match[1]),
+  );
+  const backlogIds = [
+    ...taskContents.matchAll(/^\|\s*(R2-\d+)\s*\|\s*`backlog`\s*\|/gm),
+  ].map((match) => match[1]);
+  const verifiedRuntimeIds = ['R2-02', 'R2-03', 'R2-04', 'R2-05', 'R2-06', 'R2-08', 'R2-09'];
+
+  return {
+    mode: daemon === 'active' || telegram === 'active' ? 'LEGACY ACTIVE' : 'PAUSED / MONITOR-ONLY',
+    daemon,
+    telegram,
+    voice,
+    runtimeV2: verifiedRuntimeIds.every((id) => doneIds.has(id))
+      ? 'VERIFIED / NOT DEPLOYED'
+      : 'INCOMPLETE',
+    backlogIds,
+  };
+}
+
+function readServiceActiveState(service: string, user = false): string {
+  try {
+    return execFileSync(
+      'systemctl',
+      [...(user ? ['--user'] : []), 'show', service, '--property=ActiveState', '--value'],
+      { encoding: 'utf8', timeout: 2000 },
+    ).trim() || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 async function readMonitorData(): Promise<MonitorData> {
   const [audit, liveServices] = await Promise.all([
     readLatestJsonLine<GenesisAudit>(MONITOR_AUDIT_PATH),
@@ -1048,9 +1096,6 @@ async function readMonitorData(): Promise<MonitorData> {
     ts: audit?.ts ?? '',
     services: [...services.values()].sort((a, b) => a.service.localeCompare(b.service)),
     killSwitches: audit?.kill_switches ?? {},
-    pendingItems: (audit?.pending_items ?? [])
-      .map(parseLedgerItem)
-      .filter((item): item is BugLedgerItem => item !== undefined),
   };
 }
 
@@ -1094,17 +1139,6 @@ function normalizeServiceName(service: string): string {
   return service.replace(/\.service$/, '');
 }
 
-function parseLedgerItem(row: string): BugLedgerItem | undefined {
-  const match = row.match(/^\|\s*([BMVAR]\d+)\s*\|\s*(.*?)\s*\|\s*[^|]*\|$/);
-  if (!match) {
-    return undefined;
-  }
-
-  return {
-    id: match[1],
-    text: match[2].replace(/\*\*/g, '').replace(/`/g, ''),
-  };
-}
 
 function matchLine(lines: string[], pattern: RegExp): string | undefined {
   for (const line of lines) {

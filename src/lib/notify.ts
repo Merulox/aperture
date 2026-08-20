@@ -46,31 +46,45 @@ function formatDuration(durationMs?: number): string | undefined {
   return minutes > 0 ? `${minutes}m${seconds}s` : `${seconds}s`;
 }
 
-function statusLabel(status: JobCompletePayload['status']): string {
-  if (status === 'done') return '✅';
-  if (status === 'failed') return '⛔';
-  return '⚠️';
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function statusMeta(status: JobCompletePayload['status']): { icon: string; label: string } {
+  if (status === 'done') return { icon: '🟢', label: 'DONE' };
+  if (status === 'failed') return { icon: '🔴', label: 'FAILED' };
+  return { icon: '🟠', label: 'BLOCKED' };
 }
 
 function messageFor(p: JobCompletePayload): string {
-  const exit = p.exitCode === null ? 'exit null' : `exit ${p.exitCode}`;
+  const { icon, label } = statusMeta(p.status);
   const duration = formatDuration(p.durationMs);
-  const header = [statusLabel(p.status), p.taskId, p.status, '·', exit, duration ? `· ${duration}` : '']
-    .filter(Boolean)
-    .join(' ')
-    .replace(/\s+·/g, ' ·');
-  const lines = [
-    header,
-    p.taskTitle,
-  ];
+  const evidence = [
+    `<b>Task:</b> <code>${escapeHtml(p.taskId)}</code>`,
+    `<b>Exit:</b> ${p.exitCode === null ? 'not reported' : p.exitCode}`,
+    duration ? `<b>Duration:</b> ${duration}` : undefined,
+    `<b>Commit:</b> <code>${escapeHtml(p.commit || 'none')}</code>`,
+  ].filter(Boolean);
 
   if (p.status === 'blocked' && p.blockedReason) {
-    lines.push(`reason: ${p.blockedReason}`);
+    evidence.push(`<b>Reason:</b> ${escapeHtml(p.blockedReason)}`);
   }
-  lines.push(`commit: ${p.commit || 'none — check log'}`);
-  if (p.logPath) lines.push(`log: ${p.logPath}`);
+  if (p.logPath) {
+    evidence.push(`<b>Log:</b> <code>${escapeHtml(p.logPath)}</code>`);
+  }
 
-  return lines.join('\n');
+  return [
+    `${icon} <b>${label}</b>  ·  <code>aperture/job</code>`,
+    '',
+    `<b>${escapeHtml(p.taskTitle)}</b>`,
+    '',
+    evidence.join('\n\n'),
+    '',
+    '<i>Open Aperture for the full run context</i>',
+  ].join('\n');
 }
 
 export async function notifyJobComplete(p: JobCompletePayload): Promise<void> {
@@ -98,6 +112,8 @@ export async function notifyJobComplete(p: JobCompletePayload): Promise<void> {
       body: JSON.stringify({
         chat_id: chatId,
         text: messageFor(p),
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
       }),
     });
 
