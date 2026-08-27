@@ -6,6 +6,7 @@ const BRANCHES: Record<string, true> = {
   sessions: true,
   services: true,
   capabilities: true,
+  model: true,
 };
 
 export const GET: APIRoute = async ({ url }) => {

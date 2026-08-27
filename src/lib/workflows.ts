@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { promisify } from 'node:util';
 import { getGitnexusStatus, type RepoStatus } from './gitnexus';
 import {
@@ -16,16 +17,30 @@ const HOME = homedir();
 const MANIFEST = join(HOME, 'projects/realm/MANIFEST.md');
 const GITNEXUS_BIN = join(HOME, '.npm-global/bin/gitnexus');
 const RESIDENT_TOPOLOGY_SOURCE = join(HOME, 'projects/aperture/src/lib/resident-topology.ts');
+const SYSTEM_MODEL_DB = join(HOME, '.local/share/realm-system-model/model.sqlite3');
 
 export type WorkflowKind =
   | 'system'
   | 'domain'
+  | 'project'
   | 'repository'
   | 'session'
   | 'resident'
   | 'service'
+  | 'timer'
   | 'capability'
   | 'process'
+  | 'api'
+  | 'data_store'
+  | 'authority'
+  | 'objective'
+  | 'task'
+  | 'action'
+  | 'receipt'
+  | 'outcome'
+  | 'conflict'
+  | 'external'
+  | 'verification'
   | 'step';
 
 export type WorkflowStatus = 'active' | 'inactive' | 'warning' | 'indexed' | 'unknown';
@@ -46,10 +61,31 @@ export interface WorkflowNode {
   details: Record<string, string | number | boolean | null>;
 }
 
+export type WorkflowLinkKind =
+  | 'contains'
+  | 'owns'
+  | 'depends_on'
+  | 'calls'
+  | 'reads_from'
+  | 'writes_to'
+  | 'emits'
+  | 'consumes'
+  | 'triggered_by'
+  | 'scheduled_by'
+  | 'authorizes'
+  | 'denies'
+  | 'observes'
+  | 'implements'
+  | 'produces_receipt'
+  | 'verified_by'
+  | 'supersedes'
+  | 'executes'
+  | 'step';
+
 export interface WorkflowLink {
   source: string;
   target: string;
-  kind: 'contains' | 'owns' | 'executes' | 'step';
+  kind: WorkflowLinkKind;
   label: string;
   status: WorkflowStatus;
   certainty: 'observed' | 'inferred';
@@ -212,10 +248,249 @@ function categoryNode(
   };
 }
 
+interface SystemModelSnapshotRow {
+  id: string;
+  generated_at: string;
+  node_count: number;
+  edge_count: number;
+  warnings_json: string;
+}
+
+interface SystemModelNodeRow {
+  id: string;
+  kind: WorkflowKind;
+  label: string;
+  project: string | null;
+  status: string;
+  summary: string;
+  confidence: number;
+  properties_json: string;
+  source_uri: string;
+  source_observed_at: string;
+  evidence_class: string;
+}
+
+interface SystemModelEdgeRow {
+  id: string;
+  source_id: string;
+  target_id: string;
+  kind: WorkflowLinkKind;
+  status: string;
+  confidence: number;
+  properties_json: string;
+  source_uri: string;
+  source_observed_at: string;
+  evidence_class: string;
+}
+
+interface SystemModelSummary {
+  available: boolean;
+  generatedAt: string | null;
+  nodes: number;
+  edges: number;
+  warnings: number;
+}
+
+const SYSTEM_MODEL_VISIBLE_KINDS: Partial<Record<WorkflowKind, true>> = {
+  system: true,
+  project: true,
+  repository: true,
+  session: true,
+  service: true,
+  timer: true,
+  capability: true,
+  process: true,
+  api: true,
+  data_store: true,
+  authority: true,
+  objective: true,
+  task: true,
+  action: true,
+  receipt: true,
+  outcome: true,
+  conflict: true,
+  external: true,
+  verification: true,
+};
+
+function readSystemModelSummary(): SystemModelSummary {
+  if (!existsSync(SYSTEM_MODEL_DB)) {
+    return { available: false, generatedAt: null, nodes: 0, edges: 0, warnings: 0 };
+  }
+  let database: DatabaseSync | null = null;
+  try {
+    database = new DatabaseSync(SYSTEM_MODEL_DB, { readOnly: true });
+    database.exec('PRAGMA query_only = ON');
+    const row = database.prepare(
+      'SELECT id,generated_at,node_count,edge_count,warnings_json FROM snapshots ORDER BY generated_at DESC LIMIT 1',
+    ).get() as unknown as SystemModelSnapshotRow | undefined;
+    if (!row) return { available: false, generatedAt: null, nodes: 0, edges: 0, warnings: 0 };
+    const warnings = JSON.parse(row.warnings_json) as unknown;
+    return {
+      available: true,
+      generatedAt: row.generated_at,
+      nodes: Number(row.node_count),
+      edges: Number(row.edge_count),
+      warnings: Array.isArray(warnings) ? warnings.length : 0,
+    };
+  } catch {
+    return { available: false, generatedAt: null, nodes: 0, edges: 0, warnings: 0 };
+  } finally {
+    database?.close();
+  }
+}
+
+function modelStatus(status: string, kind: WorkflowKind): WorkflowStatus {
+  if (kind === 'conflict' || status === 'blocking' || status === 'warning') return 'warning';
+  if (['active', 'running', 'allowed', 'known', 'enabled', 'next'].includes(status)) return 'active';
+  if (['inactive', 'stopped', 'held', 'denied', 'missing', 'unavailable'].includes(status)) return 'inactive';
+  if (['indexed', 'registered', 'present', 'observed', 'current', 'provider', 'consumer'].includes(status)) return 'indexed';
+  return 'unknown';
+}
+
+function modelDetails(propertiesJson: string, confidence: number, evidenceClass: string): Record<string, string | number | boolean | null> {
+  let properties: Record<string, unknown> = {};
+  try {
+    properties = JSON.parse(propertiesJson) as Record<string, unknown>;
+  } catch {
+    properties = { parseError: true };
+  }
+  const details: Record<string, string | number | boolean | null> = {
+    confidence,
+    evidenceClass,
+  };
+  for (const [key, value] of Object.entries(properties)) {
+    details[key] = value === null || ['string', 'number', 'boolean'].includes(typeof value)
+      ? value as string | number | boolean | null
+      : JSON.stringify(value);
+  }
+  return details;
+}
+
+function systemModelUnavailable(categoryId: string): WorkflowGraph {
+  const generatedAt = new Date().toISOString();
+  return {
+    nodes: [{
+      id: 'conflict:realm-system-model-unavailable',
+      label: 'REALM SYSTEM MODEL UNAVAILABLE',
+      kind: 'conflict',
+      status: 'warning',
+      summary: 'No compiled Realm system-model snapshot is readable.',
+      source: SYSTEM_MODEL_DB,
+      updatedAt: null,
+      parentId: categoryId,
+      details: { database: SYSTEM_MODEL_DB },
+    }],
+    links: [{
+      source: categoryId,
+      target: 'conflict:realm-system-model-unavailable',
+      kind: 'contains',
+      label: 'reports',
+      status: 'warning',
+      certainty: 'observed',
+    }],
+    generatedAt,
+    sourceRevision: 'unavailable',
+    counts: { warnings: 1 },
+  };
+}
+
+function readSystemModelBranch(categoryId: string): WorkflowGraph {
+  if (!existsSync(SYSTEM_MODEL_DB)) return systemModelUnavailable(categoryId);
+  let database: DatabaseSync | null = null;
+  try {
+    database = new DatabaseSync(SYSTEM_MODEL_DB, { readOnly: true });
+    database.exec('PRAGMA query_only = ON');
+    const snapshot = database.prepare(
+      'SELECT id,generated_at,node_count,edge_count,warnings_json FROM snapshots ORDER BY generated_at DESC LIMIT 1',
+    ).get() as unknown as SystemModelSnapshotRow | undefined;
+    if (!snapshot) return systemModelUnavailable(categoryId);
+    const nodeRows = database.prepare(
+      'SELECT id,kind,label,project,status,summary,confidence,properties_json,source_uri,source_observed_at,evidence_class '
+      + 'FROM nodes WHERE snapshot_id=? ORDER BY id',
+    ).all(snapshot.id) as unknown as SystemModelNodeRow[];
+    const visibleRows = nodeRows.filter((row) => (
+      row.kind in SYSTEM_MODEL_VISIBLE_KINDS
+      && (row.kind !== 'capability' || !['registered', 'indexed'].includes(row.status))
+    ));
+    const visibleIds = new Set(visibleRows.map((row) => row.id));
+    const edgeRows = (database.prepare(
+      'SELECT id,source_id,target_id,kind,status,confidence,properties_json,source_uri,source_observed_at,evidence_class '
+      + 'FROM edges WHERE snapshot_id=? ORDER BY id',
+    ).all(snapshot.id) as unknown as SystemModelEdgeRow[])
+      .filter((row) => visibleIds.has(row.source_id) && visibleIds.has(row.target_id));
+    const parentByNode = new Map<string, string>();
+    for (const edge of edgeRows) {
+      if (['contains', 'owns'].includes(edge.kind) && !parentByNode.has(edge.target_id)) {
+        parentByNode.set(edge.target_id, edge.source_id);
+      }
+    }
+    const nodes: WorkflowNode[] = visibleRows.map((row) => ({
+      id: row.id,
+      label: row.label,
+      kind: row.kind,
+      status: modelStatus(row.status, row.kind),
+      summary: row.summary || `${row.kind} observed by the Realm system model.`,
+      source: row.source_uri,
+      updatedAt: row.source_observed_at,
+      metric: row.status.toUpperCase(),
+      parentId: parentByNode.get(row.id) ?? categoryId,
+      details: {
+        project: row.project,
+        rawStatus: row.status,
+        ...modelDetails(row.properties_json, Number(row.confidence), row.evidence_class),
+      },
+    }));
+    const links: WorkflowLink[] = edgeRows.map((row) => ({
+      source: row.source_id,
+      target: row.target_id,
+      kind: row.kind,
+      label: row.kind.replaceAll('_', ' '),
+      status: modelStatus(row.status, visibleRows.find((node) => node.id === row.target_id)?.kind ?? 'process'),
+      certainty: row.evidence_class === 'observed' || row.evidence_class === 'declared' ? 'observed' : 'inferred',
+    }));
+    for (const node of nodes) {
+      if (node.parentId !== categoryId) continue;
+      links.push({
+        source: categoryId,
+        target: node.id,
+        kind: 'contains',
+        label: 'models',
+        status: node.status,
+        certainty: 'observed',
+      });
+    }
+    const warnings = JSON.parse(snapshot.warnings_json) as unknown;
+    const counts = Object.fromEntries(
+      [...new Set(nodes.map((node) => node.kind))].map((kind) => [
+        kind,
+        nodes.filter((node) => node.kind === kind).length,
+      ]),
+    );
+    return {
+      nodes,
+      links,
+      generatedAt: new Date().toISOString(),
+      sourceRevision: snapshot.id,
+      counts: {
+        ...counts,
+        sourceNodes: Number(snapshot.node_count),
+        sourceEdges: Number(snapshot.edge_count),
+        warnings: Array.isArray(warnings) ? warnings.length : 0,
+      },
+    };
+  } catch {
+    return systemModelUnavailable(categoryId);
+  } finally {
+    database?.close();
+  }
+}
+
 export async function getWorkflowRoot(): Promise<WorkflowGraph> {
   const [manifest, gitnexus] = await Promise.all([manifestState(), getGitnexusStatus()]);
   const generatedAt = new Date().toISOString();
   const activePaths = manifest.sessions.flatMap((session) => session.claims);
+  const systemModel = readSystemModelSummary();
   const nodes: WorkflowNode[] = [
     {
       id: 'system:realm',
@@ -237,6 +512,7 @@ export async function getWorkflowRoot(): Promise<WorkflowGraph> {
     categoryNode('sessions', 'ACTIVE OPERATORS', 'Current OMP sessions and the components they claim.', manifest.sessions.length, MANIFEST, manifest.generatedAt),
     categoryNode('services', 'LIVE MACHINERY', 'Known services, including stopped machinery that can be inspected.', manifest.services.length, MANIFEST, manifest.generatedAt),
     categoryNode('capabilities', 'CAPABILITY VAULT', 'Registered scripts, pipelines, services, data, and canonical artifacts.', manifest.tools.length, MANIFEST, manifest.generatedAt),
+    categoryNode('model', 'AGENT SYSTEM MODEL', 'Evidence-backed authority, dependency, runtime, receipt, and outcome graph used by OMP.', systemModel.nodes, SYSTEM_MODEL_DB, systemModel.generatedAt ?? generatedAt),
   ];
   const links: WorkflowLink[] = [
     rootLink('category:projects'),
@@ -244,6 +520,7 @@ export async function getWorkflowRoot(): Promise<WorkflowGraph> {
     rootLink('category:sessions'),
     rootLink('category:services'),
     rootLink('category:capabilities'),
+    rootLink('category:model'),
   ];
 
   for (const repo of gitnexus.repos) {
@@ -290,7 +567,7 @@ export async function getWorkflowRoot(): Promise<WorkflowGraph> {
     nodes,
     links,
     generatedAt,
-    sourceRevision: `${manifest.generatedAt}|${gitnexus.generatedAt}`,
+    sourceRevision: `${manifest.generatedAt}|${gitnexus.generatedAt}|${systemModel.generatedAt ?? 'model-unavailable'}`,
     counts: {
       repositories: gitnexus.repos.length,
       residents: RESIDENT_TOPOLOGIES.length,
@@ -298,6 +575,9 @@ export async function getWorkflowRoot(): Promise<WorkflowGraph> {
       services: manifest.services.length,
       runningServices: manifest.services.filter((service) => service.running).length,
       capabilities: manifest.tools.length,
+      systemModelNodes: systemModel.nodes,
+      systemModelEdges: systemModel.edges,
+      systemModelWarnings: systemModel.warnings,
     },
   };
 }
@@ -425,6 +705,8 @@ export async function getWorkflowBranch(branch: string): Promise<WorkflowGraph> 
   const [manifest, gitnexus] = await Promise.all([manifestState(), getGitnexusStatus()]);
   const graph = branchBase(manifest.generatedAt);
   const categoryId = `category:${branch}`;
+  if (branch === 'model') return readSystemModelBranch(categoryId);
+
 
   if (branch === 'residents') {
     const activePaths = manifest.sessions.flatMap((session) => session.claims);

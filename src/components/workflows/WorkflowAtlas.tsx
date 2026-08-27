@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-type NodeKind = 'system' | 'domain' | 'repository' | 'session' | 'resident' | 'service' | 'capability' | 'process' | 'step';
+type NodeKind =
+  | 'system' | 'domain' | 'project' | 'repository' | 'session' | 'resident'
+  | 'service' | 'timer' | 'capability' | 'process' | 'api' | 'data_store'
+  | 'authority' | 'objective' | 'task' | 'action' | 'receipt' | 'outcome'
+  | 'conflict' | 'external' | 'verification' | 'step';
 type NodeStatus = 'active' | 'inactive' | 'warning' | 'indexed' | 'unknown';
 
 interface AtlasNode {
@@ -22,7 +26,11 @@ interface AtlasNode {
 interface AtlasLink {
   source: string;
   target: string;
-  kind: 'contains' | 'owns' | 'executes' | 'step';
+  kind:
+    | 'contains' | 'owns' | 'depends_on' | 'calls' | 'reads_from' | 'writes_to'
+    | 'emits' | 'consumes' | 'triggered_by' | 'scheduled_by' | 'authorizes'
+    | 'denies' | 'observes' | 'implements' | 'produces_receipt' | 'verified_by'
+    | 'supersedes' | 'executes' | 'step';
   label: string;
   status: NodeStatus;
   certainty: 'observed' | 'inferred';
@@ -61,11 +69,24 @@ const EMPTY_GRAPH: AtlasGraph = { nodes: [], links: [], generatedAt: '', sourceR
 const COLOR_BY_KIND: Record<NodeKind, string> = {
   system: '#f5c542',
   domain: '#8a7dff',
+  project: '#8a7dff',
   repository: '#55b7ff',
   session: '#6ee7a8',
+  timer: '#ffb570',
   resident: '#f5c96a',
   service: '#ff9f5a',
   capability: '#d78cff',
+  api: '#4fc3f7',
+  data_store: '#7bb6a4',
+  authority: '#ffd166',
+  objective: '#f7d774',
+  task: '#8ed1fc',
+  action: '#ffab76',
+  receipt: '#81c995',
+  outcome: '#5bd69f',
+  conflict: '#ff6b6b',
+  external: '#b39ddb',
+  verification: '#74d6c7',
   process: '#63d7df',
   step: '#bac7d5',
 };
@@ -83,12 +104,25 @@ function createAtlasLayout(nodes: AtlasNode[]): AtlasLayout {
   const depthByKind: Record<NodeKind, number> = {
     system: 0,
     domain: 1,
+    project: 1,
     repository: 2,
     session: 2,
     resident: 2,
     service: 2,
     capability: 2,
+    timer: 2,
     process: 3,
+    api: 3,
+    data_store: 2,
+    authority: 2,
+    objective: 2,
+    task: 3,
+    action: 3,
+    receipt: 4,
+    outcome: 4,
+    conflict: 2,
+    external: 2,
+    verification: 4,
     step: 4,
   };
   const groups = new Map<number, AtlasNode[]>();
