@@ -89,9 +89,16 @@ interface EvidenceCheck {
   result?: string;
 }
 
+interface EvidenceMethodIdentity {
+  guard_sha256: string;
+  runtime_overlay_sha256: string;
+  profiles: Record<string, string>;
+}
+
 interface SmokeEvidence {
   observed_at: string;
   omp_version: string;
+  method_identity?: EvidenceMethodIdentity;
   checks: EvidenceCheck[];
   verdict: Record<string, string>;
 }
@@ -127,7 +134,7 @@ interface AttestationReceipt {
   injection?: string;
 }
 
-export type SourceState = 'available' | 'empty' | 'absent' | 'partial' | 'unreadable' | 'invalid' | 'stale';
+export type SourceState = 'available' | 'empty' | 'absent' | 'partial' | 'unreadable' | 'invalid' | 'stale' | 'superseded';
 
 export interface SourceStatus {
   label: string;
@@ -242,6 +249,20 @@ function isAttestationReceipt(value: unknown): value is AttestationReceipt {
     && 'launch_id' in value
     && typeof value.launch_id === 'string';
 }
+function isEvidenceMethodIdentity(value: unknown): value is EvidenceMethodIdentity {
+  return typeof value === 'object'
+    && value !== null
+    && 'guard_sha256' in value
+    && typeof value.guard_sha256 === 'string'
+    && 'runtime_overlay_sha256' in value
+    && typeof value.runtime_overlay_sha256 === 'string'
+    && 'profiles' in value
+    && typeof value.profiles === 'object'
+    && value.profiles !== null
+    && !Array.isArray(value.profiles)
+    && Object.values(value.profiles).every((hash) => typeof hash === 'string');
+}
+
 
 function isSmokeEvidence(value: unknown): value is SmokeEvidence {
   return typeof value === 'object'
@@ -371,7 +392,32 @@ async function latestEvidencePath(): Promise<string | null> {
   }
 }
 
+function evidenceIdentityIssues(evidence: SmokeEvidence, registry: Registry): string[] {
+  const identity = evidence.method_identity;
+  if (!isEvidenceMethodIdentity(identity)) {
+    return ['Evidence does not declare a valid method identity'];
+  }
+
+  const issues: string[] = [];
+  if (identity.guard_sha256 !== registry.guard.sha256) {
+    issues.push(`guard hash: expected ${registry.guard.sha256}, observed ${identity.guard_sha256}`);
+  }
+  if (identity.runtime_overlay_sha256 !== registry.runtime_overlay.sha256) {
+    issues.push(
+      `runtime-overlay hash: expected ${registry.runtime_overlay.sha256}, observed ${identity.runtime_overlay_sha256}`,
+    );
+  }
+  for (const [profileId, profile] of Object.entries(registry.profiles)) {
+    const observed = identity.profiles[profileId];
+    if (observed !== profile.sha256) {
+      issues.push(`profile ${profileId}: expected ${profile.sha256}, observed ${observed ?? 'missing'}`);
+    }
+  }
+  return issues;
+}
+
 async function readLatestEvidence(
+  registry: Registry,
   now: number,
   maximumAgeHours: number,
 ): Promise<{
@@ -408,6 +454,22 @@ async function readLatestEvidence(
         },
       };
     }
+
+    const identityIssues = evidenceIdentityIssues(parsed, registry);
+    if (identityIssues.length > 0) {
+      return {
+        evidence: parsed,
+        source: {
+          label: 'evidence',
+          path,
+          state: 'superseded',
+          validRecords: 1,
+          invalidRecords: 0,
+          error: identityIssues.join('; '),
+        },
+      };
+    }
+
     const observedAt = Date.parse(parsed.observed_at);
     if (!Number.isFinite(observedAt)) {
       return {
@@ -579,7 +641,8 @@ function sourceIsCorrupt(source: SourceStatus): boolean {
   return source.state === 'partial'
     || source.state === 'unreadable'
     || source.state === 'invalid'
-    || source.state === 'stale';
+    || source.state === 'stale'
+    || source.state === 'superseded';
 }
 
 export async function getJailbreakDashboard(): Promise<JailbreakDashboard> {
@@ -595,7 +658,7 @@ export async function getJailbreakDashboard(): Promise<JailbreakDashboard> {
     readText(join(CONTROL_ROOT, registry.runtime_overlay.path)),
     readJsonLines('launches', join(STATE_ROOT, 'launches.jsonl'), isLaunchReceipt),
     readJsonLines('attestations', join(STATE_ROOT, 'attestations.jsonl'), isAttestationReceipt),
-    readLatestEvidence(now, maximumEvidenceAgeHours),
+    readLatestEvidence(registry, now, maximumEvidenceAgeHours),
   ]);
 
   const hashFixtures: Array<[string, ContentAddressedFile]> = [

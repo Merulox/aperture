@@ -9,7 +9,7 @@ let importSequence = 0;
 
 interface FixtureOptions {
   attestation?: 'matched' | 'missing' | 'malformed' | 'stale' | 'mismatch';
-  evidence?: 'fresh' | 'missing' | 'invalid' | 'future' | 'stale';
+  evidence?: 'fresh' | 'missing' | 'invalid' | 'future' | 'stale' | 'mismatch' | 'legacy';
   injection?: 'replace' | 'append';
   taskGuard?: boolean;
 }
@@ -158,6 +158,13 @@ function createFixture(options: FixtureOptions = {}): Fixture {
           : observedAt;
     writeJson(join(evidenceRoot, 'fixture.json'), {
       observed_at: evidenceObservedAt,
+      method_identity: options.evidence === 'legacy'
+        ? undefined
+        : {
+            guard_sha256: options.evidence === 'mismatch' ? '0'.repeat(64) : guardSha256,
+            runtime_overlay_sha256: overlaySha256,
+            profiles: { fixture: profileSha256 },
+          },
       omp_version: 'fixture',
       checks: [
         { id: 'expected-zero', exit_status: 0 },
@@ -226,6 +233,20 @@ try {
           : /older than 168 hours/,
     );
   }
+
+  const supersededEvidence = createFixture({ evidence: 'mismatch' });
+  fixtures.push(supersededEvidence);
+  const supersededDashboard = await loadDashboard(supersededEvidence);
+  assert.equal(supersededDashboard.health, 'degraded');
+  assert.equal(supersededDashboard.sources.evidence.state, 'superseded');
+  assert.match(supersededDashboard.sources.evidence.error ?? '', /guard hash/);
+
+  const legacyEvidence = createFixture({ evidence: 'legacy' });
+  fixtures.push(legacyEvidence);
+  const legacyDashboard = await loadDashboard(legacyEvidence);
+  assert.equal(legacyDashboard.health, 'degraded');
+  assert.equal(legacyDashboard.sources.evidence.state, 'superseded');
+  assert.match(legacyDashboard.sources.evidence.error ?? '', /valid method identity/);
 
   const stale = createFixture({ attestation: 'stale' });
   fixtures.push(stale);
