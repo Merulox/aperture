@@ -8,8 +8,8 @@ const adapterUrl = new URL('../src/lib/jailbreak.ts', import.meta.url);
 let importSequence = 0;
 
 interface FixtureOptions {
-  attestation?: 'matched' | 'missing' | 'malformed' | 'stale' | 'mismatch';
-  evidence?: 'fresh' | 'missing' | 'invalid' | 'future' | 'stale' | 'mismatch' | 'legacy';
+  attestation?: 'matched' | 'missing' | 'malformed' | 'stale' | 'mismatch' | 'post-start-rejection';
+  evidence?: 'fresh' | 'missing' | 'invalid' | 'future' | 'stale' | 'mismatch' | 'registry-mismatch' | 'eval-mismatch' | 'legacy';
   injection?: 'replace' | 'append';
   taskGuard?: boolean;
 }
@@ -24,8 +24,10 @@ function sha256(content: string): string {
   return createHash('sha256').update(content).digest('hex');
 }
 
-function writeJson(path: string, value: unknown): void {
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+function writeJson(path: string, value: unknown): string {
+  const content = `${JSON.stringify(value, null, 2)}\n`;
+  writeFileSync(path, content);
+  return sha256(content);
 }
 
 function createFixture(options: FixtureOptions = {}): Fixture {
@@ -49,7 +51,7 @@ function createFixture(options: FixtureOptions = {}): Fixture {
   writeFileSync(join(controlRoot, 'guard.ts'), guard);
   writeFileSync(join(controlRoot, 'overlay.yml'), overlay);
 
-  writeJson(join(controlRoot, 'registry.json'), {
+  const registrySha256 = writeJson(join(controlRoot, 'registry.json'), {
     guard: { path: 'guard.ts', sha256: guardSha256 },
     runtime_overlay: { path: 'overlay.yml', sha256: overlaySha256 },
     profiles: {
@@ -69,7 +71,7 @@ function createFixture(options: FixtureOptions = {}): Fixture {
       },
     },
   });
-  writeJson(join(controlRoot, 'eval_bank.json'), {
+  const evaluationBankSha256 = writeJson(join(controlRoot, 'eval_bank.json'), {
     method_id: 'fixture-bank',
     cases: [{ id: 'fixture.case', stage: 'A', mode: 'no-tools' }],
     identity_fields: ['runtime_overlay_sha256'],
@@ -140,7 +142,15 @@ function createFixture(options: FixtureOptions = {}): Fixture {
       runtime_overlay_sha256: overlaySha256,
       injection,
     };
-    const suffix = options.attestation === 'malformed' ? '{broken-json\n' : '';
+    const suffix = options.attestation === 'malformed'
+      ? '{broken-json\n'
+      : options.attestation === 'post-start-rejection'
+        ? `${JSON.stringify({
+            ...attestation,
+            event: 'provider_request_rejected',
+            observed_at: new Date(Date.now() + 1000).toISOString(),
+          })}\n`
+        : '';
     writeFileSync(
       join(stateRoot, 'attestations.jsonl'),
       `${JSON.stringify(attestation)}\n${suffix}`,
@@ -161,6 +171,8 @@ function createFixture(options: FixtureOptions = {}): Fixture {
       method_identity: options.evidence === 'legacy'
         ? undefined
         : {
+            registry_sha256: options.evidence === 'registry-mismatch' ? '0'.repeat(64) : registrySha256,
+            eval_bank_sha256: options.evidence === 'eval-mismatch' ? '0'.repeat(64) : evaluationBankSha256,
             guard_sha256: options.evidence === 'mismatch' ? '0'.repeat(64) : guardSha256,
             runtime_overlay_sha256: overlaySha256,
             profiles: { fixture: profileSha256 },
@@ -248,6 +260,18 @@ try {
   assert.equal(legacyDashboard.sources.evidence.state, 'superseded');
   assert.match(legacyDashboard.sources.evidence.error ?? '', /valid method identity/);
 
+  for (const evidenceState of ['registry-mismatch', 'eval-mismatch'] as const) {
+    const identityFixture = createFixture({ evidence: evidenceState });
+    fixtures.push(identityFixture);
+    const identityDashboard = await loadDashboard(identityFixture);
+    assert.equal(identityDashboard.health, 'degraded');
+    assert.equal(identityDashboard.sources.evidence.state, 'superseded');
+    assert.match(
+      identityDashboard.sources.evidence.error ?? '',
+      evidenceState === 'registry-mismatch' ? /registry hash/ : /evaluation-bank hash/,
+    );
+  }
+
   const stale = createFixture({ attestation: 'stale' });
   fixtures.push(stale);
   const staleDashboard = await loadDashboard(stale);
@@ -260,6 +284,17 @@ try {
   assert.equal(mismatchDashboard.health, 'degraded');
   assert.equal(mismatchDashboard.routes[0]?.attestationStatus, 'mismatch');
   assert.match(mismatchDashboard.routes[0]?.attestationIssues.join('\n') ?? '', /attestation alias/);
+
+  const postStartRejection = createFixture({ attestation: 'post-start-rejection' });
+  fixtures.push(postStartRejection);
+  const postStartRejectionDashboard = await loadDashboard(postStartRejection);
+  assert.equal(postStartRejectionDashboard.health, 'degraded');
+  assert.equal(postStartRejectionDashboard.routes[0]?.attestationStatus, 'mismatch');
+  assert.equal(postStartRejectionDashboard.routes[0]?.latestAttestation?.event, 'provider_request_rejected');
+  assert.match(
+    postStartRejectionDashboard.routes[0]?.attestationIssues.join('\n') ?? '',
+    /attestation event/,
+  );
 
   const brokenBoundary = createFixture({ injection: 'append', taskGuard: false });
   fixtures.push(brokenBoundary);

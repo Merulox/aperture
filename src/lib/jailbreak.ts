@@ -90,6 +90,8 @@ interface EvidenceCheck {
 }
 
 interface EvidenceMethodIdentity {
+  registry_sha256: string;
+  eval_bank_sha256: string;
   guard_sha256: string;
   runtime_overlay_sha256: string;
   profiles: Record<string, string>;
@@ -252,6 +254,10 @@ function isAttestationReceipt(value: unknown): value is AttestationReceipt {
 function isEvidenceMethodIdentity(value: unknown): value is EvidenceMethodIdentity {
   return typeof value === 'object'
     && value !== null
+    && 'registry_sha256' in value
+    && typeof value.registry_sha256 === 'string'
+    && 'eval_bank_sha256' in value
+    && typeof value.eval_bank_sha256 === 'string'
     && 'guard_sha256' in value
     && typeof value.guard_sha256 === 'string'
     && 'runtime_overlay_sha256' in value
@@ -392,13 +398,24 @@ async function latestEvidencePath(): Promise<string | null> {
   }
 }
 
-function evidenceIdentityIssues(evidence: SmokeEvidence, registry: Registry): string[] {
+function evidenceIdentityIssues(
+  evidence: SmokeEvidence,
+  registry: Registry,
+  registrySha256: string,
+  evaluationBankSha256: string,
+): string[] {
   const identity = evidence.method_identity;
   if (!isEvidenceMethodIdentity(identity)) {
     return ['Evidence does not declare a valid method identity'];
   }
 
   const issues: string[] = [];
+  if (identity.registry_sha256 !== registrySha256) {
+    issues.push(`registry hash: expected ${registrySha256}, observed ${identity.registry_sha256}`);
+  }
+  if (identity.eval_bank_sha256 !== evaluationBankSha256) {
+    issues.push(`evaluation-bank hash: expected ${evaluationBankSha256}, observed ${identity.eval_bank_sha256}`);
+  }
   if (identity.guard_sha256 !== registry.guard.sha256) {
     issues.push(`guard hash: expected ${registry.guard.sha256}, observed ${identity.guard_sha256}`);
   }
@@ -418,6 +435,8 @@ function evidenceIdentityIssues(evidence: SmokeEvidence, registry: Registry): st
 
 async function readLatestEvidence(
   registry: Registry,
+  registrySha256: string,
+  evaluationBankSha256: string,
   now: number,
   maximumAgeHours: number,
 ): Promise<{
@@ -455,7 +474,12 @@ async function readLatestEvidence(
       };
     }
 
-    const identityIssues = evidenceIdentityIssues(parsed, registry);
+    const identityIssues = evidenceIdentityIssues(
+      parsed,
+      registry,
+      registrySha256,
+      evaluationBankSha256,
+    );
     if (identityIssues.length > 0) {
       return {
         evidence: parsed,
@@ -650,15 +674,23 @@ export async function getJailbreakDashboard(): Promise<JailbreakDashboard> {
   const now = Date.now();
   const maximumAgeHours = attestationMaxAgeHours();
   const maximumEvidenceAgeHours = evidenceMaxAgeHours();
-  const registry = await readJson<Registry>(join(CONTROL_ROOT, 'registry.json'));
-  const [evaluation, research, guardSource, overlaySource, launchRead, attestationRead, evidenceRead] = await Promise.all([
-    readJson<EvaluationBank>(join(CONTROL_ROOT, 'eval_bank.json')),
+  const registryPath = join(CONTROL_ROOT, 'registry.json');
+  const evaluationBankPath = join(CONTROL_ROOT, 'eval_bank.json');
+  const [registrySource, evaluationBankSource] = await Promise.all([
+    readFile(registryPath),
+    readFile(evaluationBankPath),
+  ]);
+  const registry = JSON.parse(registrySource.toString('utf8')) as Registry;
+  const evaluation = JSON.parse(evaluationBankSource.toString('utf8')) as EvaluationBank;
+  const registrySha256 = createHash('sha256').update(registrySource).digest('hex');
+  const evaluationBankSha256 = createHash('sha256').update(evaluationBankSource).digest('hex');
+  const [research, guardSource, overlaySource, launchRead, attestationRead, evidenceRead] = await Promise.all([
     readJson<UniversalResearch>(join(CONTROL_ROOT, 'universal_research.json')),
     readText(join(CONTROL_ROOT, registry.guard.path)),
     readText(join(CONTROL_ROOT, registry.runtime_overlay.path)),
     readJsonLines('launches', join(STATE_ROOT, 'launches.jsonl'), isLaunchReceipt),
     readJsonLines('attestations', join(STATE_ROOT, 'attestations.jsonl'), isAttestationReceipt),
-    readLatestEvidence(registry, now, maximumEvidenceAgeHours),
+    readLatestEvidence(registry, registrySha256, evaluationBankSha256, now, maximumEvidenceAgeHours),
   ]);
 
   const hashFixtures: Array<[string, ContentAddressedFile]> = [
