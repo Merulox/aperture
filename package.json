@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "astro dev --port 8788",
     "build": "astro build",
+    "test:jailbreak": "node --experimental-strip-types tests/jailbreak-dashboard.test.ts",
     "preview": "astro preview",
     "start": "HOST=0.0.0.0 PORT=8788 node dist/server/entry.mjs"
   },

@@ -7,6 +7,9 @@ const CONTROL_ROOT = process.env.OMP_FLAGSHIP_CONTROL_ROOT
   ?? join(homedir(), 'projects/realm/flagship_control');
 const STATE_ROOT = process.env.OMP_FLAGSHIP_STATE_DIR
   ?? join(homedir(), '.local/state/omp-flagship-control');
+const DEFAULT_ATTESTATION_MAX_AGE_HOURS = 24;
+const DEFAULT_EVIDENCE_MAX_AGE_HOURS = 168;
+const FUTURE_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 interface ContentAddressedFile {
   path: string;
@@ -102,6 +105,9 @@ interface LaunchReceipt {
   injection: string;
   thinking: string;
   launch_id?: string;
+  profile_sha256?: string;
+  guard_sha256?: string;
+  runtime_overlay_sha256?: string;
 }
 
 interface AttestationReceipt {
@@ -109,9 +115,32 @@ interface AttestationReceipt {
   event: string;
   observed_at: string;
   launch_id: string;
-  actual_model: string | null;
-  actual_thinking: string | null;
-  profile_id: string;
+  expected_model?: string;
+  actual_model?: string | null;
+  expected_thinking?: string;
+  actual_thinking?: string | null;
+  profile_id?: string;
+  profile_sha256?: string;
+  guard_sha256?: string;
+  expected_runtime_overlay_sha256?: string;
+  runtime_overlay_sha256?: string;
+  injection?: string;
+}
+
+export type SourceState = 'available' | 'empty' | 'absent' | 'partial' | 'unreadable' | 'invalid' | 'stale';
+
+export interface SourceStatus {
+  label: string;
+  path: string | null;
+  state: SourceState;
+  validRecords: number;
+  invalidRecords: number;
+  error: string | null;
+}
+
+interface JsonLinesRead<T> {
+  records: T[];
+  source: SourceStatus;
 }
 
 export interface HashStatus {
@@ -121,6 +150,8 @@ export interface HashStatus {
   observed: string | null;
   verified: boolean;
 }
+
+export type RouteAttestationStatus = 'matched' | 'missing' | 'mismatch' | 'stale';
 
 export interface JailbreakRoute {
   alias: string;
@@ -133,15 +164,22 @@ export interface JailbreakRoute {
   profileHashVerified: boolean;
   latestLaunch: LaunchReceipt | null;
   latestAttestation: AttestationReceipt | null;
+  attestationStatus: RouteAttestationStatus;
+  attestationIssues: string[];
 }
 
 export interface JailbreakDashboard {
   generatedAt: string;
   controlRoot: string;
   stateRoot: string;
-  health: 'verified' | 'unattested' | 'degraded';
+  health: 'attested' | 'unattested' | 'degraded';
   routes: JailbreakRoute[];
   hashes: HashStatus[];
+  sources: {
+    launches: SourceStatus;
+    attestations: SourceStatus;
+    evidence: SourceStatus;
+  };
   controlBoundary: {
     providerRequestGuard: boolean;
     fallbackDisabled: boolean;
@@ -151,6 +189,8 @@ export interface JailbreakDashboard {
   liveState: {
     attestedRoutes: number;
     routeCount: number;
+    attestationMaxAgeHours: number;
+    evidenceMaxAgeHours: number;
   };
   evaluation: {
     methodId: string;
@@ -165,11 +205,84 @@ export interface JailbreakDashboard {
     file: string | null;
     observedAt: string | null;
     ompVersion: string | null;
-    passedChecks: number;
-    totalChecks: number;
+    checksRecorded: number;
     verdict: Record<string, string>;
   };
   errors: string[];
+}
+
+function isLaunchReceipt(value: unknown): value is LaunchReceipt {
+  return typeof value === 'object'
+    && value !== null
+    && 'alias' in value
+    && typeof value.alias === 'string'
+    && 'model' in value
+    && typeof value.model === 'string'
+    && 'profile_id' in value
+    && typeof value.profile_id === 'string'
+    && 'observed_at' in value
+    && typeof value.observed_at === 'string'
+    && 'event' in value
+    && typeof value.event === 'string'
+    && 'injection' in value
+    && typeof value.injection === 'string'
+    && 'thinking' in value
+    && typeof value.thinking === 'string';
+}
+
+function isAttestationReceipt(value: unknown): value is AttestationReceipt {
+  return typeof value === 'object'
+    && value !== null
+    && 'alias' in value
+    && typeof value.alias === 'string'
+    && 'event' in value
+    && typeof value.event === 'string'
+    && 'observed_at' in value
+    && typeof value.observed_at === 'string'
+    && 'launch_id' in value
+    && typeof value.launch_id === 'string';
+}
+
+function isSmokeEvidence(value: unknown): value is SmokeEvidence {
+  return typeof value === 'object'
+    && value !== null
+    && 'observed_at' in value
+    && typeof value.observed_at === 'string'
+    && 'omp_version' in value
+    && typeof value.omp_version === 'string'
+    && 'checks' in value
+    && Array.isArray(value.checks)
+    && 'verdict' in value
+    && typeof value.verdict === 'object'
+    && value.verdict !== null
+    && !Array.isArray(value.verdict);
+}
+
+function errorCode(error: unknown): string | null {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && typeof error.code === 'string'
+      ? error.code
+      : null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function attestationMaxAgeHours(): number {
+  const configured = Number(process.env.OMP_FLAGSHIP_ATTESTATION_MAX_AGE_HOURS);
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_ATTESTATION_MAX_AGE_HOURS;
+}
+
+function evidenceMaxAgeHours(): number {
+  const configured = Number(process.env.OMP_FLAGSHIP_EVIDENCE_MAX_AGE_HOURS);
+  return Number.isFinite(configured) && configured > 0
+    ? configured
+    : DEFAULT_EVIDENCE_MAX_AGE_HOURS;
 }
 
 async function readJson<T>(path: string): Promise<T> {
@@ -180,15 +293,60 @@ async function readText(path: string): Promise<string> {
   return readFile(path, 'utf8');
 }
 
-async function readJsonLines<T>(path: string): Promise<T[]> {
+async function readJsonLines<T>(
+  label: string,
+  path: string,
+  validate: (value: unknown) => value is T,
+): Promise<JsonLinesRead<T>> {
+  let raw: string;
   try {
-    return (await readText(path))
-      .split('\n')
-      .filter((line) => line.trim())
-      .map((line) => JSON.parse(line) as T);
-  } catch {
-    return [];
+    raw = await readText(path);
+  } catch (error) {
+    const absent = errorCode(error) === 'ENOENT';
+    return {
+      records: [],
+      source: {
+        label,
+        path,
+        state: absent ? 'absent' : 'unreadable',
+        validRecords: 0,
+        invalidRecords: 0,
+        error: absent ? null : errorMessage(error),
+      },
+    };
   }
+
+  const lines = raw.split('\n').filter((line) => line.trim());
+  if (lines.length === 0) {
+    return {
+      records: [],
+      source: { label, path, state: 'empty', validRecords: 0, invalidRecords: 0, error: null },
+    };
+  }
+
+  const records: T[] = [];
+  let invalidRecords = 0;
+  for (const line of lines) {
+    try {
+      const parsed: unknown = JSON.parse(line);
+      if (validate(parsed)) records.push(parsed);
+      else invalidRecords += 1;
+    } catch {
+      invalidRecords += 1;
+    }
+  }
+
+  return {
+    records,
+    source: {
+      label,
+      path,
+      state: invalidRecords > 0 ? 'partial' : 'available',
+      validRecords: records.length,
+      invalidRecords,
+      error: invalidRecords > 0 ? `${invalidRecords} malformed or invalid record(s)` : null,
+    },
+  };
 }
 
 async function hashStatus(label: string, fixture: ContentAddressedFile): Promise<HashStatus> {
@@ -213,17 +371,231 @@ async function latestEvidencePath(): Promise<string | null> {
   }
 }
 
+async function readLatestEvidence(
+  now: number,
+  maximumAgeHours: number,
+): Promise<{
+  evidence: SmokeEvidence | null;
+  source: SourceStatus;
+}> {
+  const path = await latestEvidencePath();
+  if (!path) {
+    return {
+      evidence: null,
+      source: {
+        label: 'evidence',
+        path: null,
+        state: 'absent',
+        validRecords: 0,
+        invalidRecords: 0,
+        error: null,
+      },
+    };
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(await readText(path));
+    if (!isSmokeEvidence(parsed)) {
+      return {
+        evidence: null,
+        source: {
+          label: 'evidence',
+          path,
+          state: 'unreadable',
+          validRecords: 0,
+          invalidRecords: 1,
+          error: 'Evidence file does not match the expected schema',
+        },
+      };
+    }
+    const observedAt = Date.parse(parsed.observed_at);
+    if (!Number.isFinite(observedAt)) {
+      return {
+        evidence: null,
+        source: {
+          label: 'evidence',
+          path,
+          state: 'invalid',
+          validRecords: 0,
+          invalidRecords: 1,
+          error: 'Evidence observed_at timestamp is invalid',
+        },
+      };
+    }
+    if (observedAt > now + FUTURE_CLOCK_SKEW_MS) {
+      return {
+        evidence: null,
+        source: {
+          label: 'evidence',
+          path,
+          state: 'invalid',
+          validRecords: 0,
+          invalidRecords: 1,
+          error: 'Evidence observed_at timestamp is implausibly in the future',
+        },
+      };
+    }
+    if (now - observedAt > maximumAgeHours * 60 * 60 * 1000) {
+      return {
+        evidence: parsed,
+        source: {
+          label: 'evidence',
+          path,
+          state: 'stale',
+          validRecords: 1,
+          invalidRecords: 0,
+          error: `Evidence is older than ${maximumAgeHours} hours`,
+        },
+      };
+    }
+    return {
+      evidence: parsed,
+      source: {
+        label: 'evidence',
+        path,
+        state: 'available',
+        validRecords: 1,
+        invalidRecords: 0,
+        error: null,
+      },
+    };
+  } catch (error) {
+    return {
+      evidence: null,
+      source: {
+        label: 'evidence',
+        path,
+        state: 'unreadable',
+        validRecords: 0,
+        invalidRecords: 1,
+        error: errorMessage(error),
+      },
+    };
+  }
+}
+
+function compareIdentity(
+  label: string,
+  actual: string | null | undefined,
+  expected: string,
+  issues: string[],
+): void {
+  if (actual !== expected) issues.push(`${label}: expected ${expected}, observed ${actual ?? 'missing'}`);
+}
+
+function routeAttestation(
+  alias: string,
+  route: RouteRecord,
+  profile: ProfileRecord,
+  registry: Registry,
+  launch: LaunchReceipt | null,
+  attestations: Map<string, AttestationReceipt>,
+  now: number,
+  maximumAgeHours: number,
+): Pick<JailbreakRoute, 'latestAttestation' | 'attestationStatus' | 'attestationIssues'> {
+  if (!launch) {
+    return {
+      latestAttestation: null,
+      attestationStatus: 'missing',
+      attestationIssues: ['No launch attempt is recorded for this route'],
+    };
+  }
+  if (!launch.launch_id) {
+    return {
+      latestAttestation: null,
+      attestationStatus: 'missing',
+      attestationIssues: ['The latest launch attempt predates linked launch IDs'],
+    };
+  }
+
+  const attestation = attestations.get(launch.launch_id) ?? null;
+  if (!attestation) {
+    return {
+      latestAttestation: null,
+      attestationStatus: 'missing',
+      attestationIssues: ['No attestation is linked to the latest launch attempt'],
+    };
+  }
+
+  const issues: string[] = [];
+  compareIdentity('launch event', launch.event, 'launch_attempt', issues);
+  compareIdentity('launch alias', launch.alias, alias, issues);
+  compareIdentity('launch model', launch.model, route.model, issues);
+  compareIdentity('launch profile', launch.profile_id, route.profile, issues);
+  compareIdentity('launch profile hash', launch.profile_sha256, profile.sha256, issues);
+  compareIdentity('launch guard hash', launch.guard_sha256, registry.guard.sha256, issues);
+  compareIdentity(
+    'launch runtime-overlay hash',
+    launch.runtime_overlay_sha256,
+    registry.runtime_overlay.sha256,
+    issues,
+  );
+  compareIdentity('launch thinking', launch.thinking, route.thinking, issues);
+  compareIdentity('launch injection', launch.injection, profile.injection, issues);
+
+  compareIdentity('attestation event', attestation.event, 'session_attested', issues);
+  compareIdentity('attestation alias', attestation.alias, alias, issues);
+  compareIdentity('expected model', attestation.expected_model, route.model, issues);
+  compareIdentity('actual model', attestation.actual_model, route.model, issues);
+  compareIdentity('expected thinking', attestation.expected_thinking, route.thinking, issues);
+  compareIdentity('actual thinking', attestation.actual_thinking, route.thinking, issues);
+  compareIdentity('attested profile', attestation.profile_id, route.profile, issues);
+  compareIdentity('attested profile hash', attestation.profile_sha256, profile.sha256, issues);
+  compareIdentity('attested guard hash', attestation.guard_sha256, registry.guard.sha256, issues);
+  compareIdentity(
+    'expected runtime-overlay hash',
+    attestation.expected_runtime_overlay_sha256,
+    registry.runtime_overlay.sha256,
+    issues,
+  );
+  compareIdentity(
+    'attested runtime-overlay hash',
+    attestation.runtime_overlay_sha256,
+    registry.runtime_overlay.sha256,
+    issues,
+  );
+  compareIdentity('attested injection', attestation.injection, profile.injection, issues);
+
+  const observedAt = Date.parse(attestation.observed_at);
+  const maximumAgeMs = maximumAgeHours * 60 * 60 * 1000;
+  let stale = false;
+  if (!Number.isFinite(observedAt)) {
+    issues.push('Attestation timestamp is invalid');
+  } else if (observedAt > now + FUTURE_CLOCK_SKEW_MS) {
+    issues.push('Attestation timestamp is implausibly in the future');
+  } else if (now - observedAt > maximumAgeMs) {
+    stale = true;
+    issues.push(`Attestation is older than ${maximumAgeHours} hours`);
+  }
+
+  return {
+    latestAttestation: attestation,
+    attestationStatus: issues.length === 0 ? 'matched' : stale && issues.length === 1 ? 'stale' : 'mismatch',
+    attestationIssues: issues,
+  };
+}
+
+function sourceIsCorrupt(source: SourceStatus): boolean {
+  return source.state === 'partial'
+    || source.state === 'unreadable'
+    || source.state === 'invalid'
+    || source.state === 'stale';
+}
+
 export async function getJailbreakDashboard(): Promise<JailbreakDashboard> {
   const errors: string[] = [];
+  const now = Date.now();
+  const maximumAgeHours = attestationMaxAgeHours();
+  const maximumEvidenceAgeHours = evidenceMaxAgeHours();
   const registry = await readJson<Registry>(join(CONTROL_ROOT, 'registry.json'));
-  const [evaluation, research, guardSource, overlaySource, launches, attestations, evidencePath] = await Promise.all([
+  const [evaluation, research, guardSource, overlaySource, launchRead, attestationRead, evidenceRead] = await Promise.all([
     readJson<EvaluationBank>(join(CONTROL_ROOT, 'eval_bank.json')),
     readJson<UniversalResearch>(join(CONTROL_ROOT, 'universal_research.json')),
     readText(join(CONTROL_ROOT, registry.guard.path)),
     readText(join(CONTROL_ROOT, registry.runtime_overlay.path)),
-    readJsonLines<LaunchReceipt>(join(STATE_ROOT, 'launches.jsonl')),
-    readJsonLines<AttestationReceipt>(join(STATE_ROOT, 'attestations.jsonl')),
-    latestEvidencePath(),
+    readJsonLines('launches', join(STATE_ROOT, 'launches.jsonl'), isLaunchReceipt),
+    readJsonLines('attestations', join(STATE_ROOT, 'attestations.jsonl'), isAttestationReceipt),
+    readLatestEvidence(now, maximumEvidenceAgeHours),
   ]);
 
   const hashFixtures: Array<[string, ContentAddressedFile]> = [
@@ -239,22 +611,27 @@ export async function getJailbreakDashboard(): Promise<JailbreakDashboard> {
   );
 
   const latestLaunches = new Map<string, LaunchReceipt>();
-  for (const receipt of launches) latestLaunches.set(receipt.alias, receipt);
+  for (const receipt of launchRead.records) latestLaunches.set(receipt.alias, receipt);
 
-  const successfulAttestations = new Map<string, AttestationReceipt>();
-  for (const attestation of attestations) {
-    if (attestation.event === 'session_attested') {
-      successfulAttestations.set(attestation.launch_id, attestation);
-    }
+  const attestationsByLaunch = new Map<string, AttestationReceipt>();
+  for (const attestation of attestationRead.records) {
+    attestationsByLaunch.set(attestation.launch_id, attestation);
   }
 
   const routes = Object.entries(registry.routes).map(([alias, route]): JailbreakRoute => {
     const profile = registry.profiles[route.profile];
     if (!profile) throw new Error(`Route ${alias} references missing profile ${route.profile}`);
     const latestLaunch = latestLaunches.get(alias) ?? null;
-    const latestAttestation = latestLaunch?.launch_id
-      ? successfulAttestations.get(latestLaunch.launch_id) ?? null
-      : null;
+    const attestation = routeAttestation(
+      alias,
+      route,
+      profile,
+      registry,
+      latestLaunch,
+      attestationsByLaunch,
+      now,
+      maximumAgeHours,
+    );
     return {
       alias,
       model: route.model,
@@ -265,20 +642,9 @@ export async function getJailbreakDashboard(): Promise<JailbreakDashboard> {
       injection: profile.injection,
       profileHashVerified: profileHashes.get(route.profile) === true,
       latestLaunch,
-      latestAttestation,
+      ...attestation,
     };
   });
-
-  let evidence: SmokeEvidence | null = null;
-  if (evidencePath) {
-    try {
-      evidence = await readJson<SmokeEvidence>(evidencePath);
-    } catch (error) {
-      errors.push(`Evidence could not be read: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  } else {
-    errors.push('No smoke evidence artifact was found.');
-  }
 
   const stageCounts = evaluation.cases.reduce<Record<string, number>>((counts, item) => {
     counts[item.stage] = (counts[item.stage] ?? 0) + 1;
@@ -290,28 +656,53 @@ export async function getJailbreakDashboard(): Promise<JailbreakDashboard> {
   const providerRequestGuard = guardSource.includes('before_provider_request');
   const taskChildrenBlocked = guardSource.includes('toolName === "task"');
   const replacementInjection = routes.every((route) => route.injection === 'replace');
-  const attestedRoutes = routes.filter((route) => route.latestAttestation !== null).length;
+  const attestedRoutes = routes.filter((route) => route.attestationStatus === 'matched').length;
 
   if (!allHashesVerified) errors.push('One or more content-addressed control files failed verification.');
   if (!fallbackDisabled) errors.push('The runtime overlay does not disable both client and provider fallback.');
   if (!providerRequestGuard) errors.push('The provider-boundary model guard was not detected.');
-  if (attestedRoutes < routes.length) {
-    errors.push(`Only ${attestedRoutes}/${routes.length} latest route attempts have linked session attestations.`);
+  if (!taskChildrenBlocked) errors.push('The runtime guard does not block unprofiled task children.');
+  if (!replacementInjection) errors.push('One or more routes do not use replacement prompt injection.');
+  if (evidenceRead.source.state === 'absent' || evidenceRead.source.state === 'empty') {
+    errors.push(`Evidence source is ${evidenceRead.source.state}; freshness cannot be established.`);
+  }
+  for (const source of [launchRead.source, attestationRead.source, evidenceRead.source]) {
+    if (sourceIsCorrupt(source)) errors.push(`${source.label} source is ${source.state}: ${source.error}`);
+  }
+  for (const route of routes) {
+    if (route.attestationStatus !== 'matched') {
+      errors.push(`${route.alias} is ${route.attestationStatus}: ${route.attestationIssues.join('; ')}`);
+    }
   }
 
-  const health = !allHashesVerified || !fallbackDisabled || !providerRequestGuard
+  const routeIdentityFailure = routes.some((route) => route.attestationStatus === 'mismatch');
+  const hardBoundaryHealthy = allHashesVerified
+    && fallbackDisabled
+    && providerRequestGuard
+    && taskChildrenBlocked
+    && replacementInjection;
+  const sourceIntegrityHealthy = !sourceIsCorrupt(launchRead.source)
+    && !sourceIsCorrupt(attestationRead.source)
+    && evidenceRead.source.state === 'available';
+  const health = !hardBoundaryHealthy || !sourceIntegrityHealthy || routeIdentityFailure
     ? 'degraded'
     : attestedRoutes < routes.length
       ? 'unattested'
-      : 'verified';
+      : 'attested';
+  const evidence = evidenceRead.evidence;
 
   return {
-    generatedAt: new Date().toISOString(),
+    generatedAt: new Date(now).toISOString(),
     controlRoot: CONTROL_ROOT,
     stateRoot: STATE_ROOT,
     health,
     routes,
     hashes,
+    sources: {
+      launches: launchRead.source,
+      attestations: attestationRead.source,
+      evidence: evidenceRead.source,
+    },
     controlBoundary: {
       providerRequestGuard,
       fallbackDisabled,
@@ -321,6 +712,8 @@ export async function getJailbreakDashboard(): Promise<JailbreakDashboard> {
     liveState: {
       attestedRoutes,
       routeCount: routes.length,
+      attestationMaxAgeHours: maximumAgeHours,
+      evidenceMaxAgeHours: maximumEvidenceAgeHours,
     },
     evaluation: {
       methodId: evaluation.method_id,
@@ -332,11 +725,10 @@ export async function getJailbreakDashboard(): Promise<JailbreakDashboard> {
     },
     research,
     evidence: {
-      file: evidencePath,
+      file: evidenceRead.source.path,
       observedAt: evidence?.observed_at ?? null,
       ompVersion: evidence?.omp_version ?? null,
-      passedChecks: evidence?.checks.filter((check) => check.exit_status === 0).length ?? 0,
-      totalChecks: evidence?.checks.length ?? 0,
+      checksRecorded: evidence?.checks.length ?? 0,
       verdict: evidence?.verdict ?? {},
     },
     errors,

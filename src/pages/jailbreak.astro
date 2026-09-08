@@ -17,9 +17,9 @@ const activeTrackCount = dashboard?.research.tracks.filter((track) => track.stat
 const queuedTrackCount = dashboard?.research.tracks.filter((track) => track.status === 'queued').length ?? 0;
 
 function statusClass(status: string): string {
-  if (status === 'verified' || status === 'incumbent' || status === 'complete') return 'badge badge-green';
+  if (status === 'attested' || status === 'matched' || status === 'incumbent' || status === 'complete' || status === 'available') return 'badge badge-green';
   if (status === 'candidate' || status === 'active') return 'badge badge-blue';
-  if (status === 'experimental' || status === 'queued' || status === 'unattested') return 'badge badge-yellow';
+  if (status === 'experimental' || status === 'queued' || status === 'unattested' || status === 'absent' || status === 'empty' || status === 'stale') return 'badge badge-yellow';
   return 'badge badge-red';
 }
 
@@ -127,11 +127,18 @@ function timestamp(value: string | null): string {
                 <strong>{route.latestLaunch ? timestamp(route.latestLaunch.observed_at) : 'not recorded'}</strong>
               </div>
               <div class="launch-line">
-                <span>linked session</span>
-                <strong class={route.latestAttestation ? 'ok' : 'warn'}>
-                  {route.latestAttestation ? `attested · ${timestamp(route.latestAttestation.observed_at)}` : 'unattested'}
+                <span>identity attestation</span>
+                <strong class={route.attestationStatus === 'matched' ? 'ok' : route.attestationStatus === 'stale' ? 'warn' : 'bad'}>
+                  {route.attestationStatus}
+                  {route.latestAttestation ? ` · ${timestamp(route.latestAttestation.observed_at)}` : ''}
                 </strong>
               </div>
+              {route.attestationIssues.length > 0 ? (
+                <details class="attestation-issues">
+                  <summary>{route.attestationIssues.length} identity issue{route.attestationIssues.length === 1 ? '' : 's'}</summary>
+                  <ul>{route.attestationIssues.map((issue) => <li>{issue}</li>)}</ul>
+                </details>
+              ) : null}
             </article>
           ))}
         </div>
@@ -209,16 +216,43 @@ function timestamp(value: string | null): string {
             <div class="label">latest committed evidence</div>
             <h2 id="evidence-heading">Smoke receipt</h2>
           </div>
-          <span class="badge badge-green">{dashboard.evidence.passedChecks}/{dashboard.evidence.totalChecks} passed</span>
+          <span class="badge badge-muted">{dashboard.evidence.checksRecorded} checks recorded</span>
         </div>
         <dl class="receipt-meta">
           <div><dt>observed</dt><dd>{timestamp(dashboard.evidence.observedAt)}</dd></div>
           <div><dt>OMP</dt><dd>{dashboard.evidence.ompVersion ?? 'unknown'}</dd></div>
+          <div><dt>freshness TTL</dt><dd>{dashboard.liveState.evidenceMaxAgeHours} hours</dd></div>
           <div><dt>evidence file</dt><dd>{dashboard.evidence.file ?? 'missing'}</dd></div>
         </dl>
         <div class="verdict-list">
           {Object.entries(dashboard.evidence.verdict).map(([subject, verdict]) => (
             <div><span>{subject.replaceAll('_', ' ')}</span><p>{verdict}</p></div>
+          ))}
+        </div>
+      </section>
+
+      <section class="panel panel-wide sources" aria-labelledby="sources-heading">
+        <div class="section-title">
+          <div>
+            <div class="label">evidence inputs</div>
+            <h2 id="sources-heading">Source integrity</h2>
+          </div>
+          <span class="minor">missing, empty, partial, and unreadable remain distinct</span>
+        </div>
+        <div class="source-grid">
+          {Object.values(dashboard.sources).map((source) => (
+            <article class="source-card">
+              <header>
+                <strong>{source.label}</strong>
+                <span class={statusClass(source.state)}>{source.state}</span>
+              </header>
+              <div class="source-counts">
+                <span>{source.validRecords} valid</span>
+                <span class={source.invalidRecords > 0 ? 'bad' : ''}>{source.invalidRecords} invalid</span>
+              </div>
+              <code>{source.path ?? 'not present'}</code>
+              {source.error ? <p>{source.error}</p> : null}
+            </article>
           ))}
         </div>
       </section>
@@ -366,6 +400,10 @@ function timestamp(value: string | null): string {
     .contract-item { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px; padding: 9px 0; border-top: 1px solid #252525; }
     .contract-item span { color: var(--blue); font-size: 0.65rem; font-weight: 700; text-transform: uppercase; }
     .contract-item p { margin: 0; color: #aaa; font-size: 0.7rem; line-height: 1.45; }
+    .attestation-issues { margin-top: 9px; color: #888; font-size: 0.62rem; }
+    .attestation-issues summary { cursor: pointer; color: var(--yellow); }
+    .attestation-issues ul { margin: 8px 0 0; padding-left: 18px; }
+    .attestation-issues li { margin-bottom: 5px; line-height: 1.45; }
     .non-goal { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 10px; margin-top: 13px; padding: 11px; background: #17120b; border-left: 2px solid var(--yellow); }
     .non-goal strong { color: var(--yellow); font-size: 0.62rem; text-transform: uppercase; }
     .non-goal span { color: #aaa; font-size: 0.68rem; line-height: 1.45; }
@@ -396,6 +434,13 @@ function timestamp(value: string | null): string {
     .verdict-list div { padding: 9px 0; border-top: 1px solid #252525; }
     .verdict-list span { color: var(--blue); font-size: 0.61rem; font-weight: 700; text-transform: uppercase; }
     .verdict-list p { margin: 4px 0 0; color: #999; font-size: 0.68rem; line-height: 1.5; }
+    .source-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .source-card { min-width: 0; padding: 12px; border: 1px solid #292929; background: #0d0d0d; }
+    .source-card header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .source-card header strong { color: #bbb; font-size: 0.72rem; text-transform: uppercase; }
+    .source-counts { display: flex; gap: 12px; margin: 11px 0 8px; color: #777; font-size: 0.62rem; }
+    .source-card code { display: block; color: #555; font-size: 0.58rem; overflow-wrap: anywhere; }
+    .source-card p { margin: 8px 0 0; color: #d99; font-size: 0.62rem; }
 
     .hash-list { display: grid; gap: 6px; }
     .hash-row { display: grid; grid-template-columns: 42px 190px 125px minmax(0, 1fr); align-items: center; gap: 10px; min-width: 0; padding: 7px 0; border-top: 1px solid #222; font-size: 0.65rem; }
@@ -419,6 +464,7 @@ function timestamp(value: string | null): string {
 
     @media (max-width: 620px) {
       .route-grid, .boundary-grid, .track-body { grid-template-columns: 1fr; }
+      .source-grid { grid-template-columns: 1fr; }
       .contract-item, .non-goal { grid-template-columns: 1fr; }
       .hash-row { grid-template-columns: 42px minmax(0, 1fr); }
       .hash-row code, .hash-path { grid-column: 2; }
