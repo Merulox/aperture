@@ -1,0 +1,427 @@
+---
+import AppLayout from '../layouts/AppLayout.astro';
+import { getJailbreakDashboard } from '../lib/jailbreak';
+import type { JailbreakDashboard } from '../lib/jailbreak';
+
+let dashboard: JailbreakDashboard | null = null;
+let loadError = '';
+
+try {
+  dashboard = await getJailbreakDashboard();
+} catch (error) {
+  loadError = error instanceof Error ? error.message : String(error);
+}
+
+const verifiedHashCount = dashboard?.hashes.filter((item) => item.verified).length ?? 0;
+const activeTrackCount = dashboard?.research.tracks.filter((track) => track.status === 'active').length ?? 0;
+const queuedTrackCount = dashboard?.research.tracks.filter((track) => track.status === 'queued').length ?? 0;
+
+function statusClass(status: string): string {
+  if (status === 'verified' || status === 'incumbent' || status === 'complete') return 'badge badge-green';
+  if (status === 'candidate' || status === 'active') return 'badge badge-blue';
+  if (status === 'experimental' || status === 'queued' || status === 'unattested') return 'badge badge-yellow';
+  return 'badge badge-red';
+}
+
+function shortHash(hash: string | null): string {
+  return hash ? `${hash.slice(0, 12)}…` : 'missing';
+}
+
+function timestamp(value: string | null): string {
+  if (!value) return 'not recorded';
+  return new Date(value).toLocaleString('en-CA', { dateStyle: 'medium', timeStyle: 'short' });
+}
+---
+<AppLayout title="Jailbreak" page="jailbreak" subtitle="behavior control">
+  {dashboard ? (
+    <Fragment slot="topbar-extra">
+      <span class={statusClass(dashboard.health)}>{dashboard.health}</span>
+      <span>live {timestamp(dashboard.generatedAt)}</span>
+    </Fragment>
+  ) : null}
+
+  {dashboard ? (
+    <div class="jailbreak-grid">
+      <section class="panel panel-wide hero" aria-labelledby="jailbreak-heading">
+        <div class="hero-copy">
+          <div class="eyebrow">flagship control plane / universal behavior lab</div>
+          <h1 id="jailbreak-heading">Portable behavior, not a permanent prompt.</h1>
+          <p>{dashboard.research.thesis}</p>
+          <div class="hero-path">source · {dashboard.controlRoot}</div>
+        </div>
+        <dl class="vitals" aria-label="Jailbreak system vitals">
+          <div>
+            <dt>routes</dt>
+            <dd>{dashboard.routes.length}</dd>
+          </div>
+          <div>
+            <dt>hashes</dt>
+            <dd class={verifiedHashCount === dashboard.hashes.length ? 'ok' : 'warn'}>{verifiedHashCount}/{dashboard.hashes.length}</dd>
+          </div>
+          <div>
+            <dt>evals</dt>
+            <dd>{dashboard.evaluation.cases.length}</dd>
+          </div>
+          <div>
+            <dt>tracks</dt>
+            <dd class="active">{activeTrackCount}/{activeTrackCount + queuedTrackCount}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="panel panel-wide boundary" aria-labelledby="boundary-heading">
+        <div class="section-title">
+          <div>
+            <div class="label">hard runtime boundary</div>
+            <h2 id="boundary-heading">The evaluated identity cannot drift silently</h2>
+          </div>
+          <span class={statusClass(dashboard.health)}>{dashboard.health}</span>
+        </div>
+        <div class="boundary-grid">
+          <div class:list={['boundary-item', dashboard.controlBoundary.replacementInjection ? 'is-on' : 'is-off']}>
+            <span>prompt injection</span>
+            <strong>{dashboard.controlBoundary.replacementInjection ? 'replace only' : 'mismatch'}</strong>
+          </div>
+          <div class:list={['boundary-item', dashboard.controlBoundary.fallbackDisabled ? 'is-on' : 'is-off']}>
+            <span>model fallback</span>
+            <strong>{dashboard.controlBoundary.fallbackDisabled ? 'disabled' : 'detected'}</strong>
+          </div>
+          <div class:list={['boundary-item', dashboard.controlBoundary.providerRequestGuard ? 'is-on' : 'is-off']}>
+            <span>provider request</span>
+            <strong>{dashboard.controlBoundary.providerRequestGuard ? 'rechecked' : 'unguarded'}</strong>
+          </div>
+          <div class:list={['boundary-item', dashboard.controlBoundary.taskChildrenBlocked ? 'is-on' : 'is-off']}>
+            <span>unprofiled children</span>
+            <strong>{dashboard.controlBoundary.taskChildrenBlocked ? 'blocked' : 'allowed'}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel-wide" aria-labelledby="routes-heading">
+        <div class="section-title">
+          <div>
+            <div class="label">exact model routes</div>
+            <h2 id="routes-heading">Profile registry</h2>
+          </div>
+          <span class="minor">catalog entry ≠ behavior proof</span>
+        </div>
+        <div class="route-grid">
+          {dashboard.routes.map((route) => (
+            <article class="route-card">
+              <header>
+                <div>
+                  <div class="route-alias">{route.alias}</div>
+                  <div class="route-model">{route.model}</div>
+                </div>
+                <span class={statusClass(route.status)}>{route.status}</span>
+              </header>
+              <dl>
+                <div><dt>profile</dt><dd>{route.profile}</dd></div>
+                <div><dt>thinking</dt><dd>{route.thinking}</dd></div>
+                <div><dt>injection</dt><dd>{route.injection}</dd></div>
+                <div><dt>profile hash</dt><dd class={route.profileHashVerified ? 'ok' : 'bad'}>{route.profileHashVerified ? 'verified' : 'mismatch'}</dd></div>
+              </dl>
+              <p class="evidence-copy">{route.evidence}</p>
+              <div class="launch-line">
+                <span>latest attempt</span>
+                <strong>{route.latestLaunch ? timestamp(route.latestLaunch.observed_at) : 'not recorded'}</strong>
+              </div>
+              <div class="launch-line">
+                <span>linked session</span>
+                <strong class={route.latestAttestation ? 'ok' : 'warn'}>
+                  {route.latestAttestation ? `attested · ${timestamp(route.latestAttestation.observed_at)}` : 'unattested'}
+                </strong>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section class="panel research" aria-labelledby="research-heading">
+        <div class="label">research program · {dashboard.research.program_id}</div>
+        <h2 id="research-heading">Universal behavior contract</h2>
+        <p class="thesis">{dashboard.research.current_hypothesis}</p>
+        <div class="contract-list">
+          {dashboard.research.behavior_contract.map((item) => (
+            <div class="contract-item">
+              <span>{item.id}</span>
+              <p>{item.requirement}</p>
+            </div>
+          ))}
+        </div>
+        <div class="non-goal"><strong>proof boundary</strong><span>{dashboard.research.non_goal}</span></div>
+      </section>
+
+      <section class="panel research" aria-labelledby="tracks-heading">
+        <div class="section-title">
+          <div>
+            <div class="label">resilience roadmap</div>
+            <h2 id="tracks-heading">Research tracks</h2>
+          </div>
+          <span class="badge badge-blue">{activeTrackCount} active</span>
+        </div>
+        <div class="track-list">
+          {dashboard.research.tracks.map((track, index) => (
+            <details class="track" open={track.status === 'active'}>
+              <summary>
+                <span class="track-number">{String(index + 1).padStart(2, '0')}</span>
+                <span>{track.title}</span>
+                <span class={statusClass(track.status)}>{track.status}</span>
+              </summary>
+              <div class="track-body">
+                <div><strong>evidence now</strong><p>{track.evidence}</p></div>
+                <div><strong>next experiment</strong><p>{track.next_experiment}</p></div>
+              </div>
+            </details>
+          ))}
+        </div>
+      </section>
+
+      <section class="panel evaluation" aria-labelledby="evaluation-heading">
+        <div class="label">adversarial evaluation</div>
+        <h2 id="evaluation-heading">{dashboard.evaluation.methodId}</h2>
+        <div class="stage-row">
+          {['A', 'B', 'C'].map((stage) => (
+            <div class="stage">
+              <span>stage {stage}</span>
+              <strong>{dashboard.evaluation.stageCounts[stage] ?? 0}</strong>
+            </div>
+          ))}
+        </div>
+        <div class="case-list">
+          {dashboard.evaluation.cases.map((item) => (
+            <div><code>{item.id}</code><span>{item.mode}</span></div>
+          ))}
+        </div>
+        <div class="identity-field">
+          <strong>evaluation identity</strong>
+          <div>
+            {dashboard.evaluation.identityFields.map((field) => <code>{field}</code>)}
+          </div>
+        </div>
+        <div class="policy"><strong>first outcome</strong><p>{dashboard.evaluation.firstOutcomePolicy}</p></div>
+        <div class="policy"><strong>promotion</strong><p>{dashboard.evaluation.promotionPolicy}</p></div>
+      </section>
+
+      <section class="panel evidence" aria-labelledby="evidence-heading">
+        <div class="section-title">
+          <div>
+            <div class="label">latest committed evidence</div>
+            <h2 id="evidence-heading">Smoke receipt</h2>
+          </div>
+          <span class="badge badge-green">{dashboard.evidence.passedChecks}/{dashboard.evidence.totalChecks} passed</span>
+        </div>
+        <dl class="receipt-meta">
+          <div><dt>observed</dt><dd>{timestamp(dashboard.evidence.observedAt)}</dd></div>
+          <div><dt>OMP</dt><dd>{dashboard.evidence.ompVersion ?? 'unknown'}</dd></div>
+          <div><dt>evidence file</dt><dd>{dashboard.evidence.file ?? 'missing'}</dd></div>
+        </dl>
+        <div class="verdict-list">
+          {Object.entries(dashboard.evidence.verdict).map(([subject, verdict]) => (
+            <div><span>{subject.replaceAll('_', ' ')}</span><p>{verdict}</p></div>
+          ))}
+        </div>
+      </section>
+
+      <section class="panel panel-wide hashes" aria-labelledby="hashes-heading">
+        <div class="section-title">
+          <div>
+            <div class="label">content-addressed controls</div>
+            <h2 id="hashes-heading">Live integrity</h2>
+          </div>
+          <span class={verifiedHashCount === dashboard.hashes.length ? 'badge badge-green' : 'badge badge-red'}>
+            {verifiedHashCount}/{dashboard.hashes.length} verified
+          </span>
+        </div>
+        <div class="hash-list">
+          {dashboard.hashes.map((item) => (
+            <div class="hash-row">
+              <span class={item.verified ? 'hash-mark ok' : 'hash-mark bad'}>{item.verified ? 'pass' : 'fail'}</span>
+              <strong>{item.label}</strong>
+              <code title={item.observed ?? 'missing'}>{shortHash(item.observed)}</code>
+              <span class="hash-path">{item.path}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {dashboard.errors.length > 0 ? (
+        <section class="panel panel-wide error-panel">
+          <div class="label">attention required</div>
+          {dashboard.errors.map((error) => <p>{error}</p>)}
+        </section>
+      ) : null}
+    </div>
+  ) : (
+    <section class="panel panel-wide error-panel">
+      <div class="label">jailbreak dashboard unavailable</div>
+      <h1>Control-plane data could not be loaded</h1>
+      <p>{loadError}</p>
+    </section>
+  )}
+
+  <style>
+    .jailbreak-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    h1, h2, p { margin-top: 0; }
+    h2 { margin-bottom: 12px; color: var(--text); font-size: 1rem; text-transform: uppercase; }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(360px, 0.8fr);
+      align-items: end;
+      gap: 36px;
+      border-top: 2px solid var(--red);
+      background: linear-gradient(115deg, #161010 0%, var(--surface) 48%);
+    }
+
+    .eyebrow, .minor {
+      color: var(--muted);
+      font-size: 0.66rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .hero h1 {
+      margin: 7px 0 12px;
+      color: #f3f3f3;
+      font-size: clamp(1.75rem, 4vw, 3rem);
+      line-height: 0.98;
+      max-width: 720px;
+    }
+
+    .hero p, .thesis {
+      margin-bottom: 0;
+      color: #bbb;
+      font-size: 0.82rem;
+      line-height: 1.6;
+    }
+
+    .hero-path {
+      margin-top: 13px;
+      color: #666;
+      font-size: 0.62rem;
+      overflow-wrap: anywhere;
+    }
+
+    .vitals {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin: 0;
+      border-left: 1px solid #292929;
+    }
+
+    .vitals div { padding: 10px 0 10px 18px; border-bottom: 1px solid #202020; }
+    .vitals dt { color: #777; font-size: 0.62rem; text-transform: uppercase; }
+    .vitals dd { margin: 5px 0 0; font-size: 1.35rem; font-weight: 700; }
+    .ok { color: var(--green) !important; }
+    .warn, .active { color: var(--blue) !important; }
+    .bad { color: var(--red) !important; }
+
+    .section-title {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .section-title .label { margin-bottom: 5px; }
+
+    .boundary-grid, .route-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .boundary-item {
+      padding: 12px;
+      border: 1px solid #292929;
+      background: #0d0d0d;
+    }
+
+    .boundary-item.is-on { border-top-color: var(--green); }
+    .boundary-item.is-off { border-top-color: var(--red); }
+    .boundary-item span, .launch-line span { display: block; color: #777; font-size: 0.6rem; text-transform: uppercase; }
+    .boundary-item strong { display: block; margin-top: 7px; color: #ddd; font-size: 0.78rem; }
+
+    .route-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .route-card { min-width: 0; padding: 14px; border: 1px solid #292929; background: #0d0d0d; }
+    .route-card header { display: flex; justify-content: space-between; gap: 14px; }
+    .route-alias { color: var(--blue); font-weight: 700; text-transform: uppercase; }
+    .route-model { margin-top: 4px; color: #888; font-size: 0.67rem; overflow-wrap: anywhere; }
+    .route-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 16px 0; }
+    .route-card dl div { min-width: 0; }
+    .route-card dt, .receipt-meta dt { color: #666; font-size: 0.58rem; text-transform: uppercase; }
+    .route-card dd, .receipt-meta dd { margin: 4px 0 0; color: #bbb; font-size: 0.68rem; overflow-wrap: anywhere; }
+    .evidence-copy { min-height: 2.8rem; margin-bottom: 12px; color: #999; font-size: 0.68rem; line-height: 1.5; }
+    .launch-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 10px; border-top: 1px solid #222; }
+    .launch-line strong { color: #aaa; font-size: 0.62rem; font-weight: 400; }
+
+    .contract-list, .track-list, .case-list, .verdict-list { display: grid; gap: 7px; }
+    .thesis { margin-bottom: 15px; }
+    .contract-item { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 10px; padding: 9px 0; border-top: 1px solid #252525; }
+    .contract-item span { color: var(--blue); font-size: 0.65rem; font-weight: 700; text-transform: uppercase; }
+    .contract-item p { margin: 0; color: #aaa; font-size: 0.7rem; line-height: 1.45; }
+    .non-goal { display: grid; grid-template-columns: 100px minmax(0, 1fr); gap: 10px; margin-top: 13px; padding: 11px; background: #17120b; border-left: 2px solid var(--yellow); }
+    .non-goal strong { color: var(--yellow); font-size: 0.62rem; text-transform: uppercase; }
+    .non-goal span { color: #aaa; font-size: 0.68rem; line-height: 1.45; }
+
+    .track { border-top: 1px solid #292929; }
+    .track summary { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 10px 0; cursor: pointer; color: #ccc; font-size: 0.72rem; list-style: none; }
+    .track summary::-webkit-details-marker { display: none; }
+    .track-number { color: #555; }
+    .track-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 2px 0 13px 36px; }
+    .track-body strong, .policy strong { color: #777; font-size: 0.58rem; text-transform: uppercase; }
+    .track-body p, .policy p { margin: 5px 0 0; color: #999; font-size: 0.67rem; line-height: 1.5; }
+
+    .stage-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+    .stage { display: flex; align-items: baseline; justify-content: space-between; padding: 10px; background: #0d0d0d; }
+    .stage span { color: #777; font-size: 0.62rem; text-transform: uppercase; }
+    .stage strong { color: var(--blue); font-size: 1.1rem; }
+    .case-list { margin-bottom: 16px; }
+    .case-list div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 7px; border-bottom: 1px solid #222; }
+    .case-list code { color: #bbb; font-size: 0.66rem; }
+    .case-list span { color: #666; font-size: 0.6rem; text-transform: uppercase; }
+    .identity-field { margin-bottom: 16px; }
+    .identity-field > strong { color: #777; font-size: 0.58rem; text-transform: uppercase; }
+    .identity-field > div { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+    .identity-field code { padding: 4px 6px; background: #0d0d0d; color: #888; font-size: 0.58rem; }
+    .policy + .policy { margin-top: 10px; }
+
+    .receipt-meta { display: grid; gap: 9px; margin: 0 0 15px; }
+    .verdict-list div { padding: 9px 0; border-top: 1px solid #252525; }
+    .verdict-list span { color: var(--blue); font-size: 0.61rem; font-weight: 700; text-transform: uppercase; }
+    .verdict-list p { margin: 4px 0 0; color: #999; font-size: 0.68rem; line-height: 1.5; }
+
+    .hash-list { display: grid; gap: 6px; }
+    .hash-row { display: grid; grid-template-columns: 42px 190px 125px minmax(0, 1fr); align-items: center; gap: 10px; min-width: 0; padding: 7px 0; border-top: 1px solid #222; font-size: 0.65rem; }
+    .hash-row strong { color: #bbb; }
+    .hash-row code { color: #888; }
+    .hash-mark { text-transform: uppercase; font-size: 0.58rem; font-weight: 700; }
+    .hash-path { color: #555; overflow-wrap: anywhere; }
+
+    .error-panel { border-left: 2px solid var(--red); }
+    .error-panel h1 { font-size: 1.1rem; }
+    .error-panel p { margin-bottom: 5px; color: #d99; font-size: 0.72rem; }
+
+    @media (max-width: 900px) {
+      .hero, .jailbreak-grid { grid-template-columns: 1fr; }
+      .hero { gap: 22px; }
+      .vitals { border-left: 0; border-top: 1px solid #292929; }
+      .boundary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .hash-row { grid-template-columns: 42px minmax(140px, 1fr) 120px; }
+      .hash-path { grid-column: 2 / -1; }
+    }
+
+    @media (max-width: 620px) {
+      .route-grid, .boundary-grid, .track-body { grid-template-columns: 1fr; }
+      .contract-item, .non-goal { grid-template-columns: 1fr; }
+      .hash-row { grid-template-columns: 42px minmax(0, 1fr); }
+      .hash-row code, .hash-path { grid-column: 2; }
+    }
+  </style>
+</AppLayout>

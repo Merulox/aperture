@@ -14,6 +14,7 @@ export const NAV: NavItem[] = [
   { id: 'now',       href: '/now',                                       label: 'now',       external: false },
   { id: 'learning',  href: '/learning',                                  label: 'learning',  external: false },
   { id: 'omp',       href: '/omp',                                       label: 'omp',       external: false },
+  { id: 'jailbreak', href: '/jailbreak',                                  label: 'jailbreak', external: false },
   { id: 'design',    href: '/design',                                    label: 'design',    external: false },
   { id: 'workflows', href: '/workflows',                                  label: 'flows',     external: false },
   { id: 'code',      href: '/code',                                      label: 'code',      external: false },
