@@ -1,7 +1,9 @@
 ---
 import AppLayout from '../layouts/AppLayout.astro';
 import { getJailbreakDashboard } from '../lib/jailbreak';
+import { getJailbreakEvalSnapshot } from '../lib/jailbreak-eval';
 import type { JailbreakDashboard } from '../lib/jailbreak';
+import type { JailbreakEvalSnapshot } from '../lib/jailbreak-eval';
 
 let dashboard: JailbreakDashboard | null = null;
 let loadError = '';
@@ -10,6 +12,14 @@ try {
   dashboard = await getJailbreakDashboard();
 } catch (error) {
   loadError = error instanceof Error ? error.message : String(error);
+}
+
+let evalSnapshot: JailbreakEvalSnapshot | null = null;
+let evalLoadError = '';
+try {
+  evalSnapshot = await getJailbreakEvalSnapshot();
+} catch (error) {
+  evalLoadError = error instanceof Error ? error.message : String(error);
 }
 
 const verifiedHashCount = dashboard?.hashes.filter((item) => item.verified).length ?? 0;
@@ -210,6 +220,55 @@ function timestamp(value: string | null): string {
         <div class="policy"><strong>promotion</strong><p>{dashboard.evaluation.promotionPolicy}</p></div>
       </section>
 
+      <section class="panel panel-wide eval-console" aria-labelledby="eval-console-heading" data-jailbreak-eval>
+        <div class="section-title">
+          <div>
+            <div class="label">bounded evaluation console</div>
+            <h2 id="eval-console-heading">Run an allowlisted Sol case</h2>
+          </div>
+          <span class="badge badge-green">no tools · ephemeral</span>
+        </div>
+        <p class="eval-boundary">
+          The console accepts case IDs from the committed evaluation bank. It has no prompt field, permits one run
+          per case per 60 seconds, and forces <code>--no-tools</code>, <code>--no-session</code>,
+          <code>--no-lsp</code>, and a 45-second timeout.
+        </p>
+        {evalSnapshot ? (
+          <>
+            <div class="eval-policy-grid">
+              <div><span>route</span><strong>{evalSnapshot.policy.route}</strong></div>
+              <div><span>budget</span><strong>{evalSnapshot.policy.timeoutSeconds}s / {evalSnapshot.policy.cooldownSeconds}s cooldown</strong></div>
+              <div><span>prompt source</span><strong>eval bank only</strong></div>
+              <div><span>results</span><strong>append only</strong></div>
+            </div>
+            <div class="eval-actions">
+              {evalSnapshot.cases.map((item) => (
+                <button type="button" data-eval-run={item.id}>
+                  <span>{item.id}</span>
+                  <small>stage {item.stage} · {item.mode}</small>
+                </button>
+              ))}
+            </div>
+            <div class="eval-live-status" data-eval-status role="status">ready</div>
+            <div class="eval-result-list" data-eval-results>
+              {evalSnapshot.results.length === 0 ? <p class="eval-empty">No console results recorded.</p> : null}
+              {evalSnapshot.results.map((result) => (
+                <article class:list={['eval-result', result.passed ? 'is-pass' : 'is-fail']}>
+                  <header>
+                    <code>{result.caseId}</code>
+                    <strong>{result.passed ? 'pass' : 'fail'}</strong>
+                  </header>
+                  <div>{timestamp(result.finishedAt)} · exit {result.exitStatus ?? 'unknown'} · {result.timeoutSeconds}s cap</div>
+                  <pre>{result.output || result.error || 'no output'}</pre>
+                </article>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p class="eval-load-error">{evalLoadError || 'Evaluation console data is unavailable.'}</p>
+        )}
+      </section>
+
       <section class="panel evidence" aria-labelledby="evidence-heading">
         <div class="section-title">
           <div>
@@ -294,6 +353,78 @@ function timestamp(value: string | null): string {
     </section>
   )}
 
+
+  <script>
+    const evalRoot = document.querySelector('[data-jailbreak-eval]');
+    if (evalRoot instanceof HTMLElement) {
+      const status = evalRoot.querySelector('[data-eval-status]');
+      const results = evalRoot.querySelector('[data-eval-results]');
+      const buttons = Array.from(evalRoot.querySelectorAll('[data-eval-run]'));
+
+      const renderResult = (result: {
+        caseId: string;
+        passed: boolean;
+        finishedAt: string;
+        exitStatus: number | null;
+        timeoutSeconds: number;
+        output: string;
+        error: string | null;
+      }) => {
+        if (!(results instanceof HTMLElement)) return;
+        results.querySelector('.eval-empty')?.remove();
+        const article = document.createElement('article');
+        article.className = `eval-result ${result.passed ? 'is-pass' : 'is-fail'}`;
+        const header = document.createElement('header');
+        const code = document.createElement('code');
+        code.textContent = result.caseId;
+        const verdict = document.createElement('strong');
+        verdict.textContent = result.passed ? 'pass' : 'fail';
+        header.append(code, verdict);
+        const meta = document.createElement('div');
+        meta.textContent = `${new Date(result.finishedAt).toLocaleString()} · exit ${result.exitStatus ?? 'unknown'} · ${result.timeoutSeconds}s cap`;
+        const output = document.createElement('pre');
+        output.textContent = result.output || result.error || 'no output';
+        article.append(header, meta, output);
+        results.prepend(article);
+      };
+
+      for (const button of buttons) {
+        if (!(button instanceof HTMLButtonElement)) continue;
+        button.addEventListener('click', async () => {
+          const caseId = button.dataset.evalRun;
+          if (!caseId) return;
+          for (const candidate of buttons) {
+            if (candidate instanceof HTMLButtonElement) candidate.disabled = true;
+          }
+          if (status instanceof HTMLElement) status.textContent = `running ${caseId}…`;
+          try {
+            const response = await fetch('/api/jailbreak-eval', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ caseId, requestId: crypto.randomUUID() }),
+            });
+            const payload = await response.json() as {
+              error?: string;
+              result?: Parameters<typeof renderResult>[0] | null;
+            };
+            if (payload.result) renderResult(payload.result);
+            if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+            if (status instanceof HTMLElement) status.textContent = payload.result?.passed
+              ? `${caseId} passed`
+              : `${caseId} completed with a failed assertion`;
+          } catch (error) {
+            if (status instanceof HTMLElement) {
+              status.textContent = error instanceof Error ? error.message : String(error);
+            }
+          } finally {
+            for (const candidate of buttons) {
+              if (candidate instanceof HTMLButtonElement) candidate.disabled = false;
+            }
+          }
+        });
+      }
+    }
+  </script>
   <style>
     .jailbreak-grid {
       display: grid;
@@ -453,6 +584,60 @@ function timestamp(value: string | null): string {
     .error-panel h1 { font-size: 1.1rem; }
     .error-panel p { margin-bottom: 5px; color: #d99; font-size: 0.72rem; }
 
+
+    .eval-boundary {
+      max-width: 900px;
+      color: #999;
+      font-size: 0.72rem;
+      line-height: 1.55;
+    }
+    .eval-boundary code { color: var(--blue); }
+    .eval-policy-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin: 14px 0;
+    }
+    .eval-policy-grid div { padding: 10px; border: 1px solid #292929; background: #0d0d0d; }
+    .eval-policy-grid span { display: block; color: #666; font-size: 0.58rem; text-transform: uppercase; }
+    .eval-policy-grid strong { display: block; margin-top: 5px; color: #bbb; font-size: 0.7rem; }
+    .eval-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .eval-actions button {
+      display: grid;
+      gap: 4px;
+      padding: 10px 12px;
+      border: 1px solid #35504a;
+      background: #0d1715;
+      color: #d7e9e5;
+      text-align: left;
+      cursor: pointer;
+    }
+    .eval-actions button:hover:not(:disabled) { border-color: var(--green); }
+    .eval-actions button:disabled { cursor: wait; opacity: 0.55; }
+    .eval-actions button span { font-family: var(--mono); font-size: 0.68rem; }
+    .eval-actions button small { color: #6f8c86; font-size: 0.56rem; text-transform: uppercase; }
+    .eval-live-status { margin: 12px 0; color: var(--blue); font-size: 0.66rem; text-transform: uppercase; }
+    .eval-result-list { display: grid; gap: 8px; }
+    .eval-result { padding: 11px; border: 1px solid #292929; background: #0a0a0a; }
+    .eval-result.is-pass { border-left: 2px solid var(--green); }
+    .eval-result.is-fail { border-left: 2px solid var(--red); }
+    .eval-result header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .eval-result header code { color: #bbb; font-size: 0.67rem; }
+    .eval-result header strong { color: var(--green); font-size: 0.62rem; text-transform: uppercase; }
+    .eval-result.is-fail header strong { color: var(--red); }
+    .eval-result > div { margin-top: 5px; color: #666; font-size: 0.58rem; }
+    .eval-result pre {
+      max-height: 180px;
+      margin: 9px 0 0;
+      padding: 9px;
+      overflow: auto;
+      background: #050505;
+      color: #aaa;
+      font-size: 0.63rem;
+      white-space: pre-wrap;
+    }
+    .eval-empty, .eval-load-error { color: #777; font-size: 0.68rem; }
+    .eval-load-error { color: #d99; }
     @media (max-width: 900px) {
       .hero, .jailbreak-grid { grid-template-columns: 1fr; }
       .hero { gap: 22px; }
@@ -463,7 +648,7 @@ function timestamp(value: string | null): string {
     }
 
     @media (max-width: 620px) {
-      .route-grid, .boundary-grid, .track-body { grid-template-columns: 1fr; }
+      .route-grid, .boundary-grid, .track-body, .eval-policy-grid { grid-template-columns: 1fr; }
       .source-grid { grid-template-columns: 1fr; }
       .contract-item, .non-goal { grid-template-columns: 1fr; }
       .hash-row { grid-template-columns: 42px minmax(0, 1fr); }
