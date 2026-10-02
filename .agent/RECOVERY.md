@@ -1,31 +1,20 @@
 # Recovery
 
-## Last known good state
+## Repository and state
 
-- Branch and commit:
-- Verified behavior:
-- Verification command:
-- Expected result:
+- Path: `/home/merulox/projects/aperture`
+- Branch/HEAD: `main` / `af6b634275c6b3dc360e2631ce588fa29fd78acc`
+- Current sources: `.agent/CONTEXT.md`, `.agent/TASKS.md`, `README.md`, and `docs/city/`.
 
-## Resume
+## Resume sequence
 
-1. Read `PROJECT.md`, `CONTEXT.md`, `TASKS.md`, and `DECISIONS.md`.
-2. Confirm the branch, worktree, and active task before editing.
-3. Run the recorded verification command before changing state.
+1. Run `dev context aperture`, `dev review aperture`, and `git status --short --branch`; preserve the existing City economy/style worktree changes.
+2. Read `.agent/CONTEXT.md`, `.agent/TASKS.md`, `.agent/DECISIONS.md`, `.agent/RISKS.md`, `README.md`, and `docs/city/README.md`.
+3. Check `systemctl --user is-active aperture.service` and `systemctl --user is-enabled boreal-tunnel.service`. Runtime state overrides old prose.
+4. Probe the local auth gate without credentials: `curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8788/`; expected HTTP status is `401` when the server and Basic-auth middleware respond.
+5. Before editing a symbol, follow `AGENTS.md`: inspect the relevant GitNexus execution flow and upstream impact. Before committing, run staged `detect-changes` against `main`.
+6. Use GET-only checks during recovery. Do not POST to City endpoints unless the durable message/wake side effect is explicitly intended.
 
-## Restore
+## Restored state
 
-- Backup or checkpoint:
-- Restore command:
-- Post-restore check:
-
-## Agent handoffs
-
-Handoffs are append-only. Every handoff records:
-
-- Timestamp, source role, and destination role
-- Summary of completed work
-- Exact next action
-- Blocker, or `none`
-- Branch/commit and changed files
-- Verification command and observed result
+A restored Aperture projects source-system truth without becoming its authority; fixture-backed interactions remain labelled. No repository-specific backup checkpoint is recorded here. Recover tracked task-owned files from an explicitly selected commit only after inspecting the dirty worktree.

@@ -1,57 +1,23 @@
-# Aperture — Project Context
+# Context
 
-Last updated: 2026-07-24
-Updated by: architect (AP-32 independently reviewed and accepted)
+## Objective
 
----
+Aperture is the self-hosted, auth-gated interface that makes the personal agent stack's live internal state visible. The City surface normalizes `notice → inspect → understand → converse → decide → deliver → observe changed state` without taking authority from Genesis, Realm, Orbit, Boréal, OMP, or other source systems.
 
-## Current state summary
+## Current state
 
-AP-01 dashboard is DONE and DEPLOYED. Live at https://aperture.merulox.com (401 without auth, 200 with m/st). SSR Astro, 5 sections from live state files. Committed at 15afd3f.
+- Working behavior: the Astro SSR dashboard is deployed at `https://aperture.merulox.com` and projects mode, health, Genesis, tasks/Codex, services, learning, workflows, City, OMP, Orbit, Boréal, code, red-team, and jailbreak state. Realm's generated MANIFEST records `aperture.service` running.
+- City behavior: the Genesis vertical slice reads runtime-v2 state, durably persists `message.send`, performs explicit asynchronous `resident.wake`, and reconciles event/run/trace/decision/wake receipts. Fixture interactions remain labelled simulation. Later committed surfaces include Realm workflow-atlas and bounded jailbreak control/evaluation.
+- Active constraint: the app is host-bound to `/home/merulox/...`. City is a federation/projection, not a universal runtime; adapters preserve source authority/native status, secrets are never rendered, and only declared commands are accepted.
+- Known blocker: none is recorded in current task/risk ledgers. The older tunnel-disabled warning is stale runtime prose; verify boot enablement directly instead of treating it as a current outage.
 
-AP-32 Learning tab is live and reads the 13-skill Agentic QA curriculum from `~/kernel/project/LEARNING.json`. Independent review passed build, live service, desktop, 390px overflow, disclosure content, and canonical-data parity checks.
+## Interfaces
 
-## Deployment (2026-06-05)
-- App runs as `aperture.service` (systemd --user), enabled, on 127.0.0.1:8788. Log: /tmp/aperture.log
-- Exposed via existing `boreal-webhook` cloudflared tunnel (UUID 5d1b9c57...). Ingress rule added to ~/.cloudflared/config.yml: aperture.merulox.com → localhost:8788
-- DNS: CNAME aperture.merulox.com → 5d1b9c57...cfargotunnel.com, proxied, created manually in Cloudflare dashboard (tunnel cert is scoped to borealnumerique.ca, so CLI route dns couldn't write the merulox.com record)
-- Registered in commander as service `aperture`
-- ⚠️ KNOWN GAP: `boreal-tunnel.service` is DISABLED (no auto-start on boot). After a reboot, aperture (+ commander, genesis) are unreachable until the tunnel is manually started. Enable with: systemctl --user enable boreal-tunnel.service
+- Production/local: `https://aperture.merulox.com`; `aperture.service` on `127.0.0.1:8788`; Basic auth on all routes.
+- Implemented City bridge: authenticated `GET/POST /api/city-genesis` for declared `message.send` and `resident.wake` actions.
+- Operator APIs include task/Codex/OMP, Boreal, Signaler, and City-economy surfaces. Protocol-only future endpoints must not be described as implemented.
+- Current architecture sources: `README.md`, `docs/city/README.md`, `docs/city/adapters.md`, `.agent/TASKS.md`, and `.agent/RECOVERY.md`.
 
----
+## Repository
 
-## What was just completed
-
-- AP-01: full dashboard (src/middleware.ts, src/lib/data.ts, src/styles/global.css, src/pages/index.astro)
-- Reviewed against live state — PASS. Build clean, auth gate works, all 5 sections live.
-- .astro/ added to gitignore during review
-- AP-32: Agentic QA Learning tab — independent review PASS; live and accepted
-
-## What is in flight
-
-- Nothing
-
-## What is next (candidates — need PO direction)
-
-1. **Deploy**: expose port 8788 via cloudflared tunnel to aperture.merulox.com, run `npm start` as a systemd --user service
-2. **Auto-refresh**: dashboard is currently load-time only; add periodic refresh (meta refresh or fetch poll)
-3. **More data**: realm vitals has more fields (vision/society, timespace, infra) not yet surfaced
-
----
-
-## How to run
-
-```bash
-cd ~/projects/aperture
-npm run build
-npm start    # serves on port 8788, auth m:st
-```
-
----
-
-## Resume instructions
-
-1. Read PROJECT.md open decisions — get PO answers
-2. Read ~/projects/genesis/ambient-interface-vision.md for design tone
-3. Read ~/projects/genesis/.agent/CONTEXT.md for genesis state
-4. Then write AP-01 brief
+Branch `main`; HEAD and recorded `origin/main` are `af6b634275c6b3dc360e2631ce588fa29fd78acc` at this update. Preserve the unrelated City economy/style worktree changes.
