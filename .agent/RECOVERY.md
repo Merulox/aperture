@@ -3,7 +3,7 @@
 ## Repository and state
 
 - Path: `/home/merulox/projects/aperture`
-- Branch/HEAD: `main` / `af6b634275c6b3dc360e2631ce588fa29fd78acc`
+- Branch: `main`; obtain the current commit and upstream relation with `git status --short --branch`.
 - Current sources: `.agent/CONTEXT.md`, `.agent/TASKS.md`, `README.md`, and `docs/city/`.
 
 ## Resume sequence

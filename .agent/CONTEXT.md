@@ -20,4 +20,4 @@ Aperture is the self-hosted, auth-gated interface that makes the personal agent 
 
 ## Repository
 
-Branch `main`; HEAD and recorded `origin/main` are `af6b634275c6b3dc360e2631ce588fa29fd78acc` at this update. Preserve the unrelated City economy/style worktree changes.
+Branch `main`; use Git for the live HEAD and upstream relation. Preserve the unrelated City economy/style worktree changes.
