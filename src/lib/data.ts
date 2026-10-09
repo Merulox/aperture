@@ -917,57 +917,12 @@ function readBackupStatus(): BackupStatus {
       repositoryUrl: BACKUP_REPOSITORY_URL,
       roots: BACKUP_ROOTS,
       excludes: BACKUP_EXCLUDES,
-      recentSnapshots: readRecentBackupSnapshots(),
+      // Keep the root dashboard on local systemd state only. Listing remote
+      // restic snapshots can block SSR long enough for Cloudflare to return 502.
+      recentSnapshots: [],
     };
   } catch {
-    return {
-      ...fallback,
-      recentSnapshots: readRecentBackupSnapshots(),
-    };
-  }
-}
-
-function readRecentBackupSnapshots(): BackupSnapshot[] {
-  try {
-    const out = execFileSync(
-      'bash',
-      [
-        '-lc',
-        [
-          'source ~/.secrets/r2-credentials',
-          `export RESTIC_REPOSITORY=${BACKUP_REPOSITORY_URL}`,
-          'export RESTIC_PASSWORD_FILE=/home/merulox/.secrets/restic-password',
-          'restic snapshots --json',
-        ].join('\n'),
-      ],
-      { encoding: 'utf8', timeout: 12_000, maxBuffer: 16 * 1024 * 1024 },
-    );
-    const snapshots = JSON.parse(out) as Array<{
-      id?: string;
-      short_id?: string;
-      time?: string;
-      paths?: string[];
-      summary?: {
-        backup_end?: string;
-        total_files_processed?: number;
-        total_bytes_processed?: number;
-      };
-    }>;
-
-    return snapshots
-      .filter((snapshot) => snapshot.time)
-      .sort((a, b) => new Date(b.time ?? 0).getTime() - new Date(a.time ?? 0).getTime())
-      .slice(0, 8)
-      .map((snapshot) => ({
-        id: snapshot.short_id ?? snapshot.id?.slice(0, 8) ?? 'unknown',
-        started: formatDateTime(snapshot.time),
-        ended: formatDateTime(snapshot.summary?.backup_end),
-        paths: snapshot.paths ?? [],
-        files: snapshot.summary?.total_files_processed ?? null,
-        bytes: snapshot.summary?.total_bytes_processed ?? null,
-      }));
-  } catch {
-    return [];
+    return fallback;
   }
 }
 
