@@ -1,0 +1,105 @@
+.attn-bar {
+  width: min(1440px, calc(100vw - 32px));
+  margin: 12px auto 0;
+  border: 1px solid #202020;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.attn-loading,
+.attn-error {
+  padding: 10px 14px;
+  color: var(--muted);
+}
+
+.attn-error { color: var(--red); }
+
+.attn-summary {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attn-toggle {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.attn-pill {
+  padding: 2px 8px;
+  border: 1px solid #2a2a2a;
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.attn-pill.attn-urgent { border-color: var(--red); color: var(--red); }
+.attn-pill.attn-needs_you { border-color: var(--yellow); color: var(--yellow); }
+.attn-pill.attn-waiting_on_them,
+.attn-pill.attn-scheduled,
+.attn-pill.attn-muted { color: var(--muted); }
+
+.attn-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 10px;
+  max-height: 46vh;
+  padding: 0 14px 12px;
+  overflow-y: auto;
+}
+
+.attn-card {
+  padding: 10px 12px;
+  border: 1px solid #242424;
+  border-left-width: 3px;
+  background: var(--bg);
+}
+
+.attn-card.attn-urgent { border-left-color: var(--red); }
+.attn-card.attn-needs_you { border-left-color: var(--yellow); }
+.attn-card.attn-waiting_on_them,
+.attn-card.attn-scheduled { border-left-color: #333; }
+
+.attn-card header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.attn-meta { color: var(--muted); font-size: 11px; }
+
+.attn-card dl { margin: 0; }
+.attn-card dt { color: var(--muted); font-size: 11px; margin-top: 6px; }
+.attn-card dd { margin: 2px 0 0; line-height: 1.4; }
+
+.attn-empty { color: var(--muted); margin: 0; }
+
+.attn-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.attn-foot button {
+  border: 1px solid #2a2a2a;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  padding: 3px 8px;
+  cursor: pointer;
+}

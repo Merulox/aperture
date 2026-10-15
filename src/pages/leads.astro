@@ -1,5 +1,7 @@
 ---
 import '../styles/global.css';
+import '../styles/attention.css';
+import AttentionBar from '../components/leads/AttentionBar';
 import LeadConsole from '../components/leads/LeadConsole';
 ---
 <!DOCTYPE html>
@@ -10,6 +12,7 @@ import LeadConsole from '../components/leads/LeadConsole';
   <title>Leads · Aperture</title>
 </head>
 <body>
+  <AttentionBar client:load />
   <LeadConsole client:load />
 </body>
 </html>

@@ -247,3 +247,24 @@ export function saveLeadNotes(phone: string, notes: string): void {
   const safe = phone.replace(/[^0-9+]/g, '');
   writeFileSync(join(NOTES_DIR, `${safe}.txt`), notes);
 }
+
+// Leads that may need Merulox: active stages, any reply we haven't answered, and
+// opt-out-classified replies whose stage was never closed. Rules live in attention.ts.
+export async function getAttentionInputs(): Promise<import('./attention').AttentionInput[]> {
+  const rows = await query<import('./attention').AttentionInput>(`
+    SELECT phone, COALESCE(name, '') AS name, COALESCE(owner_name, '') AS owner_name,
+           COALESCE(stage, '') AS stage, last_inbound_ts, last_inbound_body, last_inbound_class,
+           last_outbound_ts, postpone_until, postpone_note
+    FROM leads
+    WHERE stage IN ('RESPONDED', 'REPLIED', 'BOOKED', 'POSTPONED')
+       OR (UPPER(COALESCE(last_inbound_class, '')) = 'STOP'
+           AND COALESCE(stage, '') NOT IN ('STOP', 'BANNED', 'DEAD', 'LOST', 'WON'))
+       OR (last_inbound_ts IS NOT NULL
+           AND (last_outbound_ts IS NULL OR last_inbound_ts > last_outbound_ts)
+           AND COALESCE(stage, '') NOT IN ('STOP', 'BANNED', 'DEAD', 'LOST', 'WON'))
+  `);
+  return rows.map((row) => ({
+    ...row,
+    last_inbound_body: row.last_inbound_body ? decodeEntities(row.last_inbound_body) : row.last_inbound_body,
+  }));
+}
