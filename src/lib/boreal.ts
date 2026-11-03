@@ -647,7 +647,9 @@ export interface BorealChatMessage {
   createdAt: string;
 }
 
-export function getBorealChatHistory(resident: 'hormozi' | 'ogilvy'): { history: BorealChatMessage[]; error: string | null } {
+export type BorealAgentId = 'sales' | 'marketing';
+
+export function getBorealChatHistory(resident: BorealAgentId): { history: BorealChatMessage[]; error: string | null } {
   if (!existsSync(CRM_DB)) return { history: [], error: 'crm.db not found' };
   let database: DatabaseSync | null = null;
   try {
@@ -683,7 +685,7 @@ interface ChatResult {
 function parseChatResult(text: string): ChatResult {
   const parsed: unknown = JSON.parse(text);
   if (!parsed || typeof parsed !== 'object' || !('ok' in parsed)) {
-    return { ok: false, error: 'unexpected boreal-chat output' };
+    return { ok: false, error: 'unexpected boreal-agent-chat output' };
   }
   const ok = parsed.ok === true;
   const response = 'response' in parsed && typeof parsed.response === 'string' ? parsed.response : undefined;
@@ -691,13 +693,13 @@ function parseChatResult(text: string): ChatResult {
   return { ok, response, error };
 }
 
-export async function sendBorealChatMessage(resident: 'hormozi' | 'ogilvy', text: string): Promise<ChatResult> {
+export async function sendBorealChatMessage(resident: BorealAgentId, text: string): Promise<ChatResult> {
   const trimmed = text.trim();
   if (!trimmed) return { ok: false, error: 'text is required' };
   const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     execFile(
-      join(HOME, 'scripts', 'boreal-chat'),
-      ['--resident', resident, '--text', trimmed],
+      join(HOME, 'scripts', 'boreal-agent-chat'),
+      ['--agent', resident, '--text', trimmed],
       { timeout: 45_000, maxBuffer: 1_048_576 },
       (error, stdout, stderr) => (error ? reject(Object.assign(error, { stdout, stderr })) : resolve({ stdout, stderr })),
     );
@@ -709,6 +711,6 @@ export async function sendBorealChatMessage(resident: 'hormozi' | 'ogilvy', text
   try {
     return parseChatResult(result.stdout.trim());
   } catch {
-    return { ok: false, error: String(result.stderr || result.stdout || 'boreal-chat produced no output') };
+    return { ok: false, error: String(result.stderr || result.stdout || 'boreal-agent-chat produced no output') };
   }
 }
